@@ -1,0 +1,22 @@
+# Build artifacts
+build/
+*.o
+thing-manager
+
+# Data files
+data/*.txt
+
+# Editor files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+/tmp/
