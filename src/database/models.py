@@ -185,37 +185,47 @@ def ensure_seed_data() -> None:
     """
     Populate default scenarios, tags, and a handful of Items for Phase 1 demos.
 
-    The seed runs only on first run (when the Scenario table is empty),
-    keeping existing user data intact.
+    The seed is idempotent per table:
+    - ensure default scenarios exist,
+    - ensure default tags exist,
+    - seed sample items only when the Item table is empty.
     """
     with SessionLocal() as session:
-        # Only seed on first run: if any Scenario already exists, do nothing.
-        if session.query(Scenario).count() > 0:
-            return
-
-        # Seed default scenarios
+        # Seed default scenarios: insert only missing ones.
         default_scenarios = {
             "School": "#5c85d6",
             "Work": "#d6855c",
             "Personal": "#5cd685",
         }
-        session.add_all(
-            [Scenario(name=name, color=color) for name, color in default_scenarios.items()]
-        )
-        session.commit()
+        existing_scenarios = session.query(Scenario).all()
+        existing_scenario_names = {s.name for s in existing_scenarios}
+        new_scenarios = [
+            Scenario(name=name, color=color)
+            for name, color in default_scenarios.items()
+            if name not in existing_scenario_names
+        ]
+        if new_scenarios:
+            session.add_all(new_scenarios)
+            session.commit()
         scenarios_by_name = {s.name: s for s in session.query(Scenario).all()}
 
-        # Seed default tags
+        # Seed default tags: insert only missing ones.
         default_tags = {
             "#urgent": "#d65c5c",
             "#cs101": "#5c85d6",
             "#frontend": "#5cd6c8",
             "#reading": "#c8c85c",
         }
-        session.add_all(
-            [Tag(name=name, color=color) for name, color in default_tags.items()]
-        )
-        session.commit()
+        existing_tags = session.query(Tag).all()
+        existing_tag_names = {t.name for t in existing_tags}
+        new_tags = [
+            Tag(name=name, color=color)
+            for name, color in default_tags.items()
+            if name not in existing_tag_names
+        ]
+        if new_tags:
+            session.add_all(new_tags)
+            session.commit()
         tags_by_name = {t.name: t for t in session.query(Tag).all()}
 
         # Seed sample items only if none exist yet
