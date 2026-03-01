@@ -167,6 +167,7 @@ class MainWindow(QMainWindow):
             "background-color: #2a2a3a; color: #e0e0f0; border-radius: 4px;"
             "padding: 4px 10px; border: 1px solid #3a3a4e; font-size: 12px;"
         )
+        self._search_bar.textChanged.connect(self._on_search_text_changed)
         layout.addWidget(self._search_bar)
 
         layout.addStretch()
@@ -259,8 +260,10 @@ class MainWindow(QMainWindow):
         self._load_scenarios()
 
     def _on_scenario_changed(self, name: str) -> None:
-        self._todos_page.refresh_items(name)
-        self._timetable_page.refresh_items(name)
+        self._refresh_pages()
+
+    def _on_search_text_changed(self, _: str) -> None:
+        self._refresh_pages()
 
     # ------------------------------------------------------------------
     # Navigation
@@ -277,3 +280,12 @@ class MainWindow(QMainWindow):
     def _open_settings(self) -> None:
         dlg = SettingsWindow(self)
         dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _refresh_pages(self) -> None:
+        scenario = self._scenario_combo.currentText()
+        search = self._search_bar.text()
+        self._todos_page.refresh_items(scenario, search)
+        self._timetable_page.refresh_items(scenario, search)

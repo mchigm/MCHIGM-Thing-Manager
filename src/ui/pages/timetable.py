@@ -14,8 +14,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy import or_
 
-from src.database.models import Item, Scenario, SessionLocal
+from src.database.models import Item, Scenario, SessionLocal, Tag
+from src.ui.search_filters import parse_search_text
 
 
 class TimetablePage(QWidget):
@@ -90,13 +92,21 @@ class TimetablePage(QWidget):
 
         root.addWidget(splitter)
 
-    def refresh_items(self, scenario_name: str = "All") -> None:
+    def refresh_items(self, scenario_name: str = "All", search_text: str = "") -> None:
         """Populate the unscheduled list with items that have no start time."""
+        filters = parse_search_text(search_text)
         with SessionLocal() as session:
-            query = session.query(Item).filter(Item.start_time.is_(None)).order_by(Item.created_at)
+            query = session.query(Item).filter(Item.start_time.is_(None))
             if scenario_name != "All":
                 query = query.join(Scenario).filter(Scenario.name == scenario_name)
-            unscheduled = query.all()
+            if filters.tags:
+                query = query.join(Item.tags).filter(Tag.name.in_(filters.tags))
+            if filters.statuses:
+                query = query.filter(Item.status.in_(filters.statuses))
+            for term in filters.terms:
+                like = f"%{term}%"
+                query = query.filter(or_(Item.title.ilike(like), Item.description.ilike(like)))
+            unscheduled = query.order_by(Item.created_at).distinct().all()
 
         if self._unscheduled_layout is None:
             return
