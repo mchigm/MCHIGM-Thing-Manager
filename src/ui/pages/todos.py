@@ -100,7 +100,7 @@ class TodosPage(QWidget):
         super().__init__(parent)
         self._columns: dict[ItemStatus, KanbanColumn] = {}
         self._setup_ui()
-        self.refresh_items("All")
+
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)

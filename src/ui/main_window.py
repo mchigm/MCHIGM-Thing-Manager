@@ -259,10 +259,8 @@ class MainWindow(QMainWindow):
         self._load_scenarios()
 
     def _on_scenario_changed(self, name: str) -> None:
-        if hasattr(self, "_todos_page"):
-            self._todos_page.refresh_items(name)
-        if hasattr(self, "_timetable_page"):
-            self._timetable_page.refresh_items(name)
+        self._todos_page.refresh_items(name)
+        self._timetable_page.refresh_items(name)
 
     # ------------------------------------------------------------------
     # Navigation

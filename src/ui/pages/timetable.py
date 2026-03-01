@@ -25,7 +25,7 @@ class TimetablePage(QWidget):
         super().__init__(parent)
         self._unscheduled_layout: QVBoxLayout | None = None
         self._setup_ui()
-        self.refresh_items("All")
+
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
