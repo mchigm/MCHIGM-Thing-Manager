@@ -19,8 +19,8 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 
 | Phase | Focus |
 |-------|-------|
-| **1 (current)** | Foundation — DB schema, GUI shell, Settings, Scenario filter |
-| 2 | Core views (Kanban, Calendar) & Omni-Search |
+| 1 | Foundation — DB schema, GUI shell, Settings, Scenario filter |
+| **2 (Current)** | Core views (Kanban, Calendar) & Omni-Search |
 | 3 | AI Brain — LLM integration & MEMO chat |
 | 4 | MCP client, Google Calendar / Outlook sync |
 | 5 | Plan page (Gantt), Hotkeys, PDF export |
@@ -50,6 +50,8 @@ python main.py
 ```
 
 The SQLite database is created automatically at `~/.mchigm_thing_manager/things.db`.
+Default scenarios, tags, and a handful of sample items are seeded on first launch so
+the Kanban and Timetable views have data to display.
 
 ## Project Structure
 

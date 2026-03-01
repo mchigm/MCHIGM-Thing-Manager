@@ -1,7 +1,7 @@
 """
 TODOs page — Kanban board (Backlog → To-Do → Doing → Done).
 
-Phase 1: Column structure with placeholder cards.
+Phase 1: Column structure with live items pulled from the database.
 """
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.database.models import ItemStatus
+from src.database.models import Item, ItemStatus, Scenario, SessionLocal
 
 _COLUMN_COLORS = {
     ItemStatus.BACKLOG: "#4a4a5a",
@@ -67,9 +67,23 @@ class KanbanColumn(QWidget):
         scroll.setWidget(self._cards_widget)
         root.addWidget(scroll)
 
-    def add_placeholder(self, title: str) -> None:
-        """Add a placeholder card to the column (for Phase 1 demo)."""
-        card = QLabel(title)
+    def set_cards(self, card_texts: list[str]) -> None:
+        """Replace the column content with the provided cards."""
+        while self._cards_layout.count() > 1:
+            item = self._cards_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        if not card_texts:
+            self._add_card("No items yet.")
+            return
+
+        for text in card_texts:
+            self._add_card(text)
+
+    def _add_card(self, text: str) -> None:
+        card = QLabel(text)
         card.setWordWrap(True)
         card.setStyleSheet(
             "background-color: #3c3c50; color: #e0e0e0; border-radius: 4px;"
@@ -84,7 +98,9 @@ class TodosPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._columns: dict[ItemStatus, KanbanColumn] = {}
         self._setup_ui()
+
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -101,5 +117,25 @@ class TodosPage(QWidget):
         for status in (ItemStatus.BACKLOG, ItemStatus.TODO, ItemStatus.DOING, ItemStatus.DONE):
             col = KanbanColumn(status)
             columns_row.addWidget(col)
+            self._columns[status] = col
 
         root.addLayout(columns_row)
+
+    def refresh_items(self, scenario_name: str = "All") -> None:
+        """Load items from the database and populate columns."""
+        cards: dict[ItemStatus, list[str]] = {status: [] for status in ItemStatus}
+        with SessionLocal() as session:
+            query = session.query(Item).order_by(Item.created_at)
+            if scenario_name != "All":
+                query = query.join(Scenario).filter(Scenario.name == scenario_name)
+            for item in query.all():
+                parts = [item.title, f"Type: {item.type.value}"]
+                if item.deadline:
+                    parts.append(f"Deadline: {item.deadline.strftime('%b %d, %H:%M')}")
+                if item.tags:
+                    tags = ", ".join(tag.name for tag in item.tags)
+                    parts.append(f"Tags: {tags}")
+                cards[item.status].append("\n".join(parts))
+
+        for status, column in self._columns.items():
+            column.set_cards(cards.get(status, []))

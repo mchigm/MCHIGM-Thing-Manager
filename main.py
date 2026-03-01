@@ -8,10 +8,12 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
+from src.database.models import ensure_seed_data
 from src.ui.main_window import MainWindow, _APP_STYLE
 
 
 def main() -> None:
+    ensure_seed_data()
     app = QApplication(sys.argv)
     app.setApplicationName("MCHIGM Thing Manager")
     app.setStyleSheet(_APP_STYLE)

@@ -4,7 +4,7 @@ SQLAlchemy models for the MCHIGM Thing Manager.
 Unified Item Model — everything (task, event, note, goal) is an Item.
 """
 import enum
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import (
@@ -176,6 +176,98 @@ class Dependency(Base):
 
     def __repr__(self) -> str:
         return f"<Dependency parent={self.parent_id} → child={self.child_id}>"
+
+
+# ---------------------------------------------------------------------------
+# Seed helpers (demo data for early phases)
+# ---------------------------------------------------------------------------
+def ensure_seed_data() -> None:
+    """
+    Populate default scenarios, tags, and a handful of Items for Phase 1 demos.
+
+    The seed is idempotent per table:
+    - ensure default scenarios exist,
+    - ensure default tags exist,
+    - seed sample items only when the Item table is empty.
+    """
+    with SessionLocal() as session:
+        # Seed default scenarios: insert only missing ones.
+        default_scenarios = {
+            "School": "#5c85d6",
+            "Work": "#d6855c",
+            "Personal": "#5cd685",
+        }
+        existing_scenarios = session.query(Scenario).all()
+        existing_scenario_names = {s.name for s in existing_scenarios}
+        new_scenarios = [
+            Scenario(name=name, color=color)
+            for name, color in default_scenarios.items()
+            if name not in existing_scenario_names
+        ]
+        if new_scenarios:
+            session.add_all(new_scenarios)
+            session.commit()
+        scenarios_by_name = {s.name: s for s in session.query(Scenario).all()}
+
+        # Seed default tags: insert only missing ones.
+        default_tags = {
+            "#urgent": "#d65c5c",
+            "#cs101": "#5c85d6",
+            "#frontend": "#5cd6c8",
+            "#reading": "#c8c85c",
+        }
+        existing_tags = session.query(Tag).all()
+        existing_tag_names = {t.name for t in existing_tags}
+        new_tags = [
+            Tag(name=name, color=color)
+            for name, color in default_tags.items()
+            if name not in existing_tag_names
+        ]
+        if new_tags:
+            session.add_all(new_tags)
+            session.commit()
+        tags_by_name = {t.name: t for t in session.query(Tag).all()}
+
+        # Seed sample items only if none exist yet
+        if session.query(Item.id).limit(1).first() is None:
+            now = datetime.now(timezone.utc)
+            sample_items = [
+                Item(
+                    title="Prep CS 101 research outline",
+                    description="Skim papers and collect sources.",
+                    type=ItemType.NOTE,
+                    status=ItemStatus.BACKLOG,
+                    deadline=now + timedelta(days=4),
+                    scenario=scenarios_by_name["School"],
+                    tags=[tags_by_name["#cs101"], tags_by_name["#reading"]],
+                ),
+                Item(
+                    title="Design sprint kickoff",
+                    description="Align on roadmap milestones.",
+                    type=ItemType.EVENT,
+                    status=ItemStatus.TODO,
+                    start_time=now + timedelta(days=1, hours=2),
+                    end_time=now + timedelta(days=1, hours=4),
+                    scenario=scenarios_by_name["Work"],
+                    tags=[tags_by_name["#frontend"]],
+                ),
+                Item(
+                    title="Implement calendar drag-and-drop stub",
+                    type=ItemType.TASK,
+                    status=ItemStatus.DOING,
+                    scenario=scenarios_by_name["Work"],
+                    tags=[tags_by_name["#frontend"], tags_by_name["#urgent"]],
+                ),
+                Item(
+                    title="Read 30 minutes",
+                    type=ItemType.GOAL,
+                    status=ItemStatus.DONE,
+                    scenario=scenarios_by_name["Personal"],
+                    tags=[tags_by_name["#reading"]],
+                ),
+            ]
+            session.add_all(sample_items)
+            session.commit()
 
 
 # ---------------------------------------------------------------------------
