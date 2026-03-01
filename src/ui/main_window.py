@@ -213,10 +213,15 @@ class MainWindow(QMainWindow):
 
     def _build_pages(self) -> QStackedWidget:
         self._stack = QStackedWidget()
-        self._stack.addWidget(TodosPage())
-        self._stack.addWidget(TimetablePage())
-        self._stack.addWidget(MemoPage())
-        self._stack.addWidget(PlanPage())
+        self._todos_page = TodosPage()
+        self._timetable_page = TimetablePage()
+        self._memo_page = MemoPage()
+        self._plan_page = PlanPage()
+
+        self._stack.addWidget(self._todos_page)
+        self._stack.addWidget(self._timetable_page)
+        self._stack.addWidget(self._memo_page)
+        self._stack.addWidget(self._plan_page)
         self._navigate_to(0)
         return self._stack
 
@@ -239,6 +244,7 @@ class MainWindow(QMainWindow):
             self._seed_default_scenarios()
 
         self._scenario_combo.blockSignals(False)
+        self._on_scenario_changed(self._scenario_combo.currentText())
 
     def _seed_default_scenarios(self) -> None:
         """Insert default scenarios on first run."""
@@ -253,9 +259,10 @@ class MainWindow(QMainWindow):
         self._load_scenarios()
 
     def _on_scenario_changed(self, name: str) -> None:
-        """Slot: workspace filter changed — pages will react in later phases."""
-        # Phase 2+ will propagate this filter to all page views.
-        pass
+        if hasattr(self, "_todos_page"):
+            self._todos_page.refresh_items(name)
+        if hasattr(self, "_timetable_page"):
+            self._timetable_page.refresh_items(name)
 
     # ------------------------------------------------------------------
     # Navigation

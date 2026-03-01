@@ -50,6 +50,8 @@ python main.py
 ```
 
 The SQLite database is created automatically at `~/.mchigm_thing_manager/things.db`.
+Default scenarios, tags, and a handful of sample items are seeded on first launch so
+the Kanban and Timetable views have data to display.
 
 ## Project Structure
 

@@ -4,7 +4,7 @@ SQLAlchemy models for the MCHIGM Thing Manager.
 Unified Item Model — everything (task, event, note, goal) is an Item.
 """
 import enum
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import (
@@ -176,6 +176,90 @@ class Dependency(Base):
 
     def __repr__(self) -> str:
         return f"<Dependency parent={self.parent_id} → child={self.child_id}>"
+
+
+# ---------------------------------------------------------------------------
+# Seed helpers (demo data for early phases)
+# ---------------------------------------------------------------------------
+def ensure_seed_data() -> None:
+    """
+    Populate default scenarios, tags, and a handful of Items for Phase 1 demos.
+
+    The seed runs only when the respective tables are empty, keeping user data intact.
+    """
+    with SessionLocal() as session:
+        scenarios_by_name = {s.name: s for s in session.query(Scenario).all()}
+        default_scenarios = {
+            "School": "#5c85d6",
+            "Work": "#d6855c",
+            "Personal": "#5cd685",
+        }
+        missing_scenarios = [
+            Scenario(name=name, color=color)
+            for name, color in default_scenarios.items()
+            if name not in scenarios_by_name
+        ]
+        if missing_scenarios:
+            session.add_all(missing_scenarios)
+            session.commit()
+            scenarios_by_name = {s.name: s for s in session.query(Scenario).all()}
+
+        tags_by_name = {t.name: t for t in session.query(Tag).all()}
+        default_tags = {
+            "#urgent": "#d65c5c",
+            "#cs101": "#5c85d6",
+            "#frontend": "#5cd6c8",
+            "#reading": "#c8c85c",
+        }
+        missing_tags = [
+            Tag(name=name, color=color)
+            for name, color in default_tags.items()
+            if name not in tags_by_name
+        ]
+        if missing_tags:
+            session.add_all(missing_tags)
+            session.commit()
+            tags_by_name = {t.name: t for t in session.query(Tag).all()}
+
+        if session.query(Item).count() == 0:
+            now = datetime.now(timezone.utc)
+            sample_items = [
+                Item(
+                    title="Prep CS 101 research outline",
+                    description="Skim papers and collect sources.",
+                    type=ItemType.NOTE,
+                    status=ItemStatus.BACKLOG,
+                    deadline=now + timedelta(days=4),
+                    scenario=scenarios_by_name["School"],
+                    tags=[tags_by_name["#cs101"], tags_by_name["#reading"]],
+                ),
+                Item(
+                    title="Design sprint kickoff",
+                    description="Align on roadmap milestones.",
+                    type=ItemType.EVENT,
+                    status=ItemStatus.TODO,
+                    start_time=now + timedelta(days=1, hours=2),
+                    end_time=now + timedelta(days=1, hours=4),
+                    scenario=scenarios_by_name["Work"],
+                    tags=[tags_by_name["#frontend"]],
+                ),
+                Item(
+                    title="Implement calendar drag-and-drop stub",
+                    type=ItemType.TASK,
+                    status=ItemStatus.DOING,
+                    scenario=scenarios_by_name["Work"],
+                    tags=[tags_by_name["#frontend"], tags_by_name["#urgent"]],
+                ),
+                Item(
+                    title="Read 30 minutes",
+                    type=ItemType.GOAL,
+                    status=ItemStatus.DONE,
+                    scenario=scenarios_by_name["Personal"],
+                    tags=[tags_by_name["#reading"]],
+                ),
+            ]
+            session.add_all(sample_items)
+            session.commit()
 
 
 # ---------------------------------------------------------------------------
