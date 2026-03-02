@@ -62,12 +62,25 @@ the Kanban and Timetable views have data to display.
 - Open **Settings → MCP Client** to point the app at an MCP server (e.g., Craft or Teams connectors).
 - Install the official `mcp[cli]` package to enable live connections; the UI surfaces connection status.
 
+## Building Executables
+
+To compile the application into standalone executables for Windows or macOS, see [BUILD.md](BUILD.md) for detailed instructions.
+
+**Quick start:**
+- Windows: Run `build_windows.bat`
+- macOS: Run `./build_mac.sh`
+
 ## Project Structure
 
 ```
 MCHIGM-Thing-Manager/
 ├── main.py                   # Entry point
 ├── requirements.txt
+├── requirements-dev.txt      # Development dependencies (PyInstaller)
+├── BUILD.md                  # Build instructions for executables
+├── build_windows.bat         # Windows build script
+├── build_mac.sh              # macOS build script
+├── MCHIGM-Thing-Manager.spec # PyInstaller configuration
 ├── src/
 │   ├── database/
 │   │   └── models.py         # SQLAlchemy models: Item, Scenario, Tag, Dependency
