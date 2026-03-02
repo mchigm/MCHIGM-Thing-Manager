@@ -20,7 +20,9 @@ The application uses PyInstaller to create standalone executables that bundle Py
 
 ## Quick Start
 
-### Building on Windows
+### Building Executables
+
+#### Windows
 
 1. Open Command Prompt or PowerShell
 2. Navigate to the project directory
@@ -30,7 +32,7 @@ The application uses PyInstaller to create standalone executables that bundle Py
    ```
 4. The executable will be created at `dist\MCHIGM-Thing-Manager.exe`
 
-### Building on macOS
+#### macOS
 
 1. Open Terminal
 2. Navigate to the project directory
@@ -39,6 +41,29 @@ The application uses PyInstaller to create standalone executables that bundle Py
    ./build_mac.sh
    ```
 4. The application bundle will be created at `dist/MCHIGM Thing Manager.app`
+
+### Building Installers
+
+For easier distribution, you can create professional installers:
+
+#### Windows Installer (.exe)
+
+1. Build the executable first (see above)
+2. Install [Inno Setup 6](https://jrsoftware.org/isdl.php)
+3. Run the installer build script:
+   ```batch
+   build_windows_installer.bat
+   ```
+4. The installer will be created at `installer_output\MCHIGM-Thing-Manager-Setup.exe`
+
+#### macOS Installer (.pkg)
+
+1. Build the application bundle first (see above)
+2. Run the pkg build script:
+   ```bash
+   ./build_macos_pkg.sh
+   ```
+3. The installer will be created at `installer_output/MCHIGM-Thing-Manager-1.0.0.pkg`
 
 ## Manual Build Process
 
@@ -116,20 +141,51 @@ The `MCHIGM-Thing-Manager.spec` file controls the build process. You can customi
 
 ## Distribution
 
+### Setup Wizard
+
+A comprehensive setup wizard is provided for managing the application installation:
+
+```bash
+# Run the setup wizard
+python setup_wizard.py
+```
+
+The setup wizard provides:
+- **Install**: Install the application with configurable options
+- **Test**: Verify installation integrity
+- **Repair**: Fix corrupted installations and backup data
+- **Settings**: View and modify application settings
+- **Uninstall**: Remove the application and optionally user data
+
+The wizard requires PyQt6 and provides a user-friendly GUI for all installation operations.
+
 ### Windows Distribution
 
 1. **Simple ZIP Distribution**:
    - Compress `dist\MCHIGM-Thing-Manager.exe` into a ZIP file
    - Users extract and run the .exe file
 
-2. **Create an Installer** (Recommended):
-   - Use [Inno Setup](https://jrsoftware.org/isinfo.php) (free)
-   - Or [NSIS](https://nsis.sourceforge.io/) (free)
-   - Creates a professional installer with Start Menu shortcuts
+2. **Professional Installer** (Recommended):
+   - Use the provided Inno Setup script: `installer_windows.iss`
+   - Run `build_windows_installer.bat` to create the installer
+   - Creates a professional installer with:
+     - Start Menu and Desktop shortcuts
+     - Custom installation directory selection
+     - Automatic data directory creation
+     - Proper uninstallation with data cleanup options
+     - Windows-standard installation wizard
 
-3. **Code Signing** (Optional):
+   **Features of the Windows Installer:**
+   - Automatic detection of previous installations
+   - Option to create desktop and quick launch icons
+   - Configurable data directory location
+   - Clean uninstallation with optional data removal
+   - Professional installation wizard UI
+
+3. **Code Signing** (Optional but Recommended):
    - Sign the executable to avoid Windows SmartScreen warnings
    - Requires a code signing certificate
+   - Improves user trust and reduces security warnings
 
 ### macOS Distribution
 
@@ -138,14 +194,45 @@ The `MCHIGM-Thing-Manager.spec` file controls the build process. You can customi
    - Choose "Compress"
    - Share the resulting ZIP file
 
-2. **Create a DMG** (Recommended):
+2. **Professional .pkg Installer** (Recommended):
+   - Use the provided build script: `build_macos_pkg.sh`
+   - Creates a native macOS installer package with:
+     - Welcome and ReadMe screens
+     - License agreement display
+     - Automatic installation to /Applications
+     - Data directory creation in user home
+     - Pre/post-installation scripts
+     - Native macOS installer UI
+
+   **Features of the macOS Installer:**
+   - Standard macOS installer experience
+   - Automatic data directory setup
+   - Configurable installation options
+   - Proper permissions handling
+   - Support for both Intel and Apple Silicon
+
+3. **DMG Distribution** (Alternative):
    - Use tools like `create-dmg` or `appdmg`
    - Creates a professional disk image with drag-to-Applications
+   - More visual but less automated than .pkg
 
-3. **Notarization** (For public distribution):
+4. **Notarization** (For public distribution):
    - Required for macOS 10.15 (Catalina) and later
    - Requires an Apple Developer account ($99/year)
    - Prevents Gatekeeper warnings
+   - Command: `xcrun notarytool submit`
+
+### Installer Comparison
+
+| Feature | Windows (Inno Setup) | macOS (.pkg) |
+|---------|---------------------|--------------|
+| Native UI | ✓ | ✓ |
+| Custom install location | ✓ | ✓ |
+| Desktop shortcuts | ✓ | N/A |
+| Data directory setup | ✓ | ✓ |
+| Uninstall with data cleanup | ✓ | Manual |
+| Code signing support | ✓ | ✓ |
+| Automatic updates | Via script | Via script |
 
 ## Troubleshooting
 
@@ -301,16 +388,24 @@ MCHIGM-Thing-Manager/
 ├── dist/               # Final executables (distribute this)
 │   ├── MCHIGM-Thing-Manager.exe          # Windows
 │   └── MCHIGM Thing Manager.app/         # macOS
+├── installer_output/   # Generated installers
+│   ├── MCHIGM-Thing-Manager-Setup.exe    # Windows installer
+│   └── MCHIGM-Thing-Manager-1.0.0.pkg    # macOS installer
+├── pkg_build/          # Temporary pkg build files (can be deleted)
 ├── venv/               # Virtual environment (don't distribute)
 ├── main.py
 ├── requirements.txt
 ├── requirements-dev.txt
-├── MCHIGM-Thing-Manager.spec
-├── build_windows.bat
-├── build_mac.sh
-├── uninstall_windows.bat    # Windows uninstaller
-├── uninstall_mac.sh         # macOS uninstaller
-└── BUILD.md            # This file
+├── MCHIGM-Thing-Manager.spec      # PyInstaller configuration
+├── build_windows.bat              # Windows executable builder
+├── build_mac.sh                   # macOS executable builder
+├── build_windows_installer.bat    # Windows installer builder
+├── build_macos_pkg.sh             # macOS pkg installer builder
+├── installer_windows.iss          # Inno Setup script
+├── setup_wizard.py                # Setup wizard (install/repair/test/uninstall)
+├── uninstall_windows.bat          # Windows uninstaller
+├── uninstall_mac.sh               # macOS uninstaller
+└── BUILD.md                       # This file
 ```
 
 ## License

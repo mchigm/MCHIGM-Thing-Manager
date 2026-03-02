@@ -1,4 +1,4 @@
-name: Build Executables
+name: Build Executables and Installers
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-windows:
-    name: Build Windows Executable
+    name: Build Windows Executable and Installer
     runs-on: windows-latest
 
     steps:
@@ -30,15 +30,31 @@ jobs:
       - name: Build executable
         run: pyinstaller MCHIGM-Thing-Manager.spec
 
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+
+      - name: Build Windows installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer_windows.iss
+        shell: pwsh
+
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-Windows
+          name: MCHIGM-Thing-Manager-Windows-Executable
           path: dist/MCHIGM-Thing-Manager.exe
           if-no-files-found: error
 
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCHIGM-Thing-Manager-Windows-Installer
+          path: installer_output/MCHIGM-Thing-Manager-Setup.exe
+          if-no-files-found: error
+
   build-macos:
-    name: Build macOS Application
+    name: Build macOS Application and Installer
     runs-on: macos-latest
 
     steps:
@@ -60,21 +76,28 @@ jobs:
       - name: Build application
         run: pyinstaller MCHIGM-Thing-Manager.spec
 
-      - name: Create DMG (optional)
+      - name: Build macOS .pkg installer
         run: |
-          # Install create-dmg if you want to create a DMG file
-          # brew install create-dmg
-          # create-dmg --volname "MCHIGM Thing Manager" --window-pos 200 120 --window-size 800 400 --icon-size 100 --app-drop-link 600 185 "MCHIGM-Thing-Manager.dmg" "dist/MCHIGM Thing Manager.app"
+          chmod +x build_macos_pkg.sh
+          ./build_macos_pkg.sh
 
-          # For now, just create a ZIP file
+      - name: Create ZIP of app bundle
+        run: |
           cd dist
           zip -r -y "MCHIGM-Thing-Manager-macOS.zip" "MCHIGM Thing Manager.app"
 
-      - name: Upload macOS application
+      - name: Upload macOS application (ZIP)
         uses: actions/upload-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-macOS
+          name: MCHIGM-Thing-Manager-macOS-App
           path: dist/MCHIGM-Thing-Manager-macOS.zip
+          if-no-files-found: error
+
+      - name: Upload macOS installer (.pkg)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCHIGM-Thing-Manager-macOS-Installer
+          path: installer_output/MCHIGM-Thing-Manager-*.pkg
           if-no-files-found: error
 
   create-release:
@@ -84,16 +107,28 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')  # Only create release for tags
 
     steps:
-      - name: Download Windows artifact
+      - name: Download Windows executable
         uses: actions/download-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-Windows
+          name: MCHIGM-Thing-Manager-Windows-Executable
           path: ./artifacts/windows
 
-      - name: Download macOS artifact
+      - name: Download Windows installer
         uses: actions/download-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-macOS
+          name: MCHIGM-Thing-Manager-Windows-Installer
+          path: ./artifacts/windows
+
+      - name: Download macOS app
+        uses: actions/download-artifact@v4
+        with:
+          name: MCHIGM-Thing-Manager-macOS-App
+          path: ./artifacts/macos
+
+      - name: Download macOS installer
+        uses: actions/download-artifact@v4
+        with:
+          name: MCHIGM-Thing-Manager-macOS-Installer
           path: ./artifacts/macos
 
       - name: Create Release
@@ -101,9 +136,25 @@ jobs:
         with:
           files: |
             ./artifacts/windows/MCHIGM-Thing-Manager.exe
+            ./artifacts/windows/MCHIGM-Thing-Manager-Setup.exe
             ./artifacts/macos/MCHIGM-Thing-Manager-macOS.zip
+            ./artifacts/macos/*.pkg
           draft: false
           prerelease: false
           generate_release_notes: true
+          body: |
+            ## Installation
+
+            ### Windows
+            **Recommended:** Download and run `MCHIGM-Thing-Manager-Setup.exe` (installer)
+            **Alternative:** Download `MCHIGM-Thing-Manager.exe` (standalone executable)
+
+            ### macOS
+            **Recommended:** Download and run `MCHIGM-Thing-Manager-*.pkg` (installer)
+            **Alternative:** Download and extract `MCHIGM-Thing-Manager-macOS.zip`
+
+            ## What's New
+            See the full changelog below.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
