@@ -10,7 +10,7 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 ### Four Pages
 | # | Page | Description |
 |---|------|-------------|
-| 1 | **TODOs** | Kanban board (Backlog → To-Do → Doing → Done) |
+| 1 | **TODOs** | Kanban board (Backlog → To-Do → Doing → Done) + tracker pops up when items enter Doing |
 | 2 | **Timetable** | Day / Week / Month calendar with unscheduled sidebar |
 | 3 | **MEMO** | AI Copilot chat/scratchpad |
 | 4 | **Plan** | Gantt roadmap & Weekly Retrospective |
@@ -57,6 +57,10 @@ the Kanban and Timetable views have data to display.
 - Open **Settings → AI Agent** to set your model name (e.g., `gpt-4o-mini`, `claude-3-haiku`)
   and API key (stored locally at `~/.mchigm_thing_manager/settings.json`).
 - Without a key, the MEMO page will still capture your text as a Backlog note.
+
+### MCP Client (beta)
+- Open **Settings → MCP Client** to point the app at an MCP server (e.g., Craft or Teams connectors).
+- Install the official `mcp[cli]` package to enable live connections; the UI surfaces connection status.
 
 ## Project Structure
 

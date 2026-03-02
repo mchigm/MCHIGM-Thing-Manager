@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.mcp_client import MCPClientManager
 from src.settings_store import load_settings, save_settings
 
 
@@ -38,6 +39,9 @@ class SettingsWindow(QDialog):
         self._settings = load_settings()
         self._model_edit = None
         self._api_key_edit = None
+        self._mcp_manager = MCPClientManager()
+        self._mcp_server_edit = None
+        self._mcp_status_label = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -52,6 +56,7 @@ class SettingsWindow(QDialog):
         tabs.addTab(self._build_general_tab(), "General")
         tabs.addTab(self._build_data_tab(), "Data Management")
         tabs.addTab(self._build_ai_tab(), "AI Agent")
+        tabs.addTab(self._build_mcp_tab(), "MCP Client")
         root.addWidget(tabs, stretch=1)
 
         buttons = QDialogButtonBox(
@@ -171,6 +176,51 @@ class SettingsWindow(QDialog):
         return tab
 
     # ------------------------------------------------------------------
+    # MCP Client tab
+    # ------------------------------------------------------------------
+    def _build_mcp_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        intro = QLabel(
+            "Connect to external MCP servers (e.g., Craft, Teams) so the AI copilot can "
+            "read/write data. Install the official 'mcp[cli]' package to enable live connections."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #808090; font-size: 11px;")
+        layout.addWidget(intro)
+
+        form_box = QGroupBox("Connection")
+        form = QFormLayout(form_box)
+
+        self._mcp_server_edit = QLineEdit()
+        self._mcp_server_edit.setPlaceholderText("mcp://localhost:8000 or https://server")
+        self._mcp_server_edit.setText(self._settings.get("mcp_server_url", ""))
+        form.addRow("Server URL:", self._mcp_server_edit)
+
+        self._mcp_status_label = QLabel(self._settings.get("mcp_status", "disconnected"))
+        self._mcp_status_label.setStyleSheet("color: #808090; font-size: 11px;")
+        form.addRow("Status:", self._mcp_status_label)
+
+        btn_row = QHBoxLayout()
+        connect_btn = QPushButton("Connect")
+        connect_btn.clicked.connect(self._connect_mcp)
+        btn_row.addWidget(connect_btn)
+
+        disconnect_btn = QPushButton("Disconnect")
+        disconnect_btn.clicked.connect(self._disconnect_mcp)
+        btn_row.addWidget(disconnect_btn)
+
+        btn_row.addStretch()
+        form.addRow(btn_row)
+
+        layout.addWidget(form_box)
+        layout.addStretch()
+        return tab
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
     @staticmethod
@@ -216,6 +266,27 @@ class SettingsWindow(QDialog):
                 {
                     "ai_model": self._model_edit.text().strip(),
                     "ai_api_key": self._api_key_edit.text().strip(),
+                    "mcp_server_url": (self._mcp_server_edit.text().strip() if self._mcp_server_edit else ""),
+                    "mcp_status": (
+                        "connected" if self._mcp_manager.connected else self._settings.get("mcp_status", "disconnected")
+                    ),
                 }
             )
         self.accept()
+
+    # ------------------------------------------------------------------
+    # MCP helpers
+    # ------------------------------------------------------------------
+    def _connect_mcp(self) -> None:
+        url = self._mcp_server_edit.text().strip() if self._mcp_server_edit else ""
+        result = self._mcp_manager.connect(url)
+        self._update_mcp_status(result.message)
+
+    def _disconnect_mcp(self) -> None:
+        result = self._mcp_manager.disconnect()
+        self._update_mcp_status(result.message)
+
+    def _update_mcp_status(self, message: str) -> None:
+        if self._mcp_status_label:
+            status = "connected" if self._mcp_manager.connected else "disconnected"
+            self._mcp_status_label.setText(f"{status} — {message}")

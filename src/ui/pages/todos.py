@@ -3,11 +3,12 @@ TODOs page — Kanban board (Backlog → To-Do → Doing → Done).
 
 Phase 1: Column structure with live items pulled from the database.
 """
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -101,6 +102,13 @@ class TodosPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._columns: dict[ItemStatus, KanbanColumn] = {}
+        self._tracker_timer = QTimer(self)
+        self._tracker_timer.timeout.connect(self._tick_tracker)
+        self._tracking = False
+        self._elapsed_seconds = 0
+        self._tracker_frame: QWidget | None = None
+        self._tracker_label: QLabel | None = None
+        self._tracker_button: QPushButton | None = None
         self._setup_ui()
 
 
@@ -112,6 +120,9 @@ class TodosPage(QWidget):
         title = QLabel("TODOs — Action Hub")
         title.setStyleSheet("color: #c8c8d8; font-size: 18px; font-weight: bold;")
         root.addWidget(title)
+
+        tracker = self._build_tracker()
+        root.addWidget(tracker)
 
         columns_row = QHBoxLayout()
         columns_row.setSpacing(8)
@@ -149,3 +160,89 @@ class TodosPage(QWidget):
 
         for status, column in self._columns.items():
             column.set_cards(cards.get(status, []))
+        self._update_tracker_visibility(bool(cards.get(ItemStatus.DOING)))
+
+    # ------------------------------------------------------------------
+    # Time tracker
+    # ------------------------------------------------------------------
+    def _build_tracker(self) -> QWidget:
+        frame = QFrame()
+        frame.setStyleSheet(
+            "background-color: #232336; border: 1px solid #3a3a4e; border-radius: 6px;"
+            "padding: 8px;"
+        )
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+
+        label = QLabel("Tracker appears when cards enter Doing.")
+        label.setStyleSheet("color: #a0a0b0; font-size: 12px;")
+        layout.addWidget(label)
+
+        self._tracker_label = QLabel("00:00:00")
+        self._tracker_label.setStyleSheet("color: #c8c8d8; font-family: monospace;")
+        layout.addWidget(self._tracker_label)
+
+        self._tracker_button = QPushButton("Start")
+        self._tracker_button.setFixedWidth(70)
+        self._tracker_button.setStyleSheet(
+            "QPushButton { background-color: #5c85d6; color: #ffffff; border-radius: 4px; "
+            "padding: 4px 8px; } QPushButton:hover { background-color: #6a95e6; }"
+        )
+        self._tracker_button.clicked.connect(self._toggle_tracker)
+        layout.addWidget(self._tracker_button)
+
+        reset_btn = QPushButton("Reset")
+        reset_btn.setFixedWidth(70)
+        reset_btn.setStyleSheet(
+            "QPushButton { background-color: #3a3a4e; color: #c8c8d8; border-radius: 4px; "
+            "padding: 4px 8px; } QPushButton:hover { background-color: #4a4a6e; }"
+        )
+        reset_btn.clicked.connect(self._reset_tracker)
+        layout.addWidget(reset_btn)
+
+        layout.addStretch()
+        self._tracker_frame = frame
+        frame.hide()
+        return frame
+
+    def _toggle_tracker(self) -> None:
+        if not self._tracker_button:
+            return
+        self._tracking = not self._tracking
+        if self._tracking:
+            self._tracker_timer.start(1000)
+            self._tracker_button.setText("Pause")
+        else:
+            self._tracker_timer.stop()
+            self._tracker_button.setText("Start")
+
+    def _reset_tracker(self) -> None:
+        self._tracker_timer.stop()
+        self._tracking = False
+        self._elapsed_seconds = 0
+        if self._tracker_button:
+            self._tracker_button.setText("Start")
+        self._update_tracker_label()
+
+    def _tick_tracker(self) -> None:
+        if not self._tracking:
+            return
+        self._elapsed_seconds += 1
+        self._update_tracker_label()
+
+    def _update_tracker_label(self) -> None:
+        if not self._tracker_label:
+            return
+        hours, remainder = divmod(self._elapsed_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        self._tracker_label.setText(f"{hours:02}:{minutes:02}:{seconds:02}")
+
+    def _update_tracker_visibility(self, has_doing: bool) -> None:
+        if not self._tracker_frame:
+            return
+        if has_doing:
+            self._tracker_frame.show()
+        else:
+            self._reset_tracker()
+            self._tracker_frame.hide()

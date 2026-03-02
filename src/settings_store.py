@@ -10,6 +10,8 @@ from typing import Any, Dict
 _DEFAULTS: Dict[str, Any] = {
     "ai_model": "gpt-3.5-turbo",
     "ai_api_key": "",
+    "mcp_server_url": "",
+    "mcp_status": "disconnected",
 }
 
 
