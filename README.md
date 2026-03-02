@@ -62,21 +62,75 @@ the Kanban and Timetable views have data to display.
 - Open **Settings → MCP Client** to point the app at an MCP server (e.g., Craft or Teams connectors).
 - Install the official `mcp[cli]` package to enable live connections; the UI surfaces connection status.
 
+## Building Executables
+
+To compile the application into standalone executables for Windows or macOS, see [BUILD.md](BUILD.md) for detailed instructions.
+
+**Quick start:**
+- Windows: Run `build_windows.bat`
+- macOS: Run `./build_mac.sh`
+
+## Creating Installers
+
+Professional installers are available for easier distribution:
+
+**Windows Installer:**
+- Build: `build_windows_installer.bat` (requires Inno Setup)
+- Output: `installer_output/MCHIGM-Thing-Manager-Setup.exe`
+
+**macOS Installer:**
+- Build: `./build_macos_pkg.sh`
+- Output: `installer_output/MCHIGM-Thing-Manager-1.0.0.pkg`
+
+## Setup Wizard
+
+A comprehensive setup wizard is available for managing installations:
+
+```bash
+python setup_wizard.py
+```
+
+Features:
+- Install with configurable options
+- Test installation integrity
+- Repair corrupted installations
+- Configure application settings
+- Uninstall with optional data removal
+
+## Uninstalling
+
+To completely remove the application and all user data:
+- Windows: Run `uninstall_windows.bat`
+- macOS: Run `./uninstall_mac.sh`
+
+See [BUILD.md](BUILD.md#uninstallation) for detailed uninstallation instructions.
+
 ## Project Structure
 
 ```
 MCHIGM-Thing-Manager/
-├── main.py                   # Entry point
+├── main.py                       # Entry point
 ├── requirements.txt
+├── requirements-dev.txt          # Development dependencies (PyInstaller)
+├── BUILD.md                      # Build instructions for executables
+├── build_windows.bat             # Windows executable builder
+├── build_mac.sh                  # macOS executable builder
+├── build_windows_installer.bat   # Windows installer builder
+├── build_macos_pkg.sh            # macOS pkg installer builder
+├── installer_windows.iss         # Inno Setup script
+├── setup_wizard.py               # Setup wizard (install/repair/test/uninstall)
+├── uninstall_windows.bat         # Windows uninstaller
+├── uninstall_mac.sh              # macOS uninstaller
+├── MCHIGM-Thing-Manager.spec     # PyInstaller configuration
 ├── src/
 │   ├── database/
-│   │   └── models.py         # SQLAlchemy models: Item, Scenario, Tag, Dependency
+│   │   └── models.py             # SQLAlchemy models: Item, Scenario, Tag, Dependency
 │   └── ui/
-│       ├── main_window.py    # Main window + navigation + scenario dropdown
+│       ├── main_window.py        # Main window + navigation + scenario dropdown
 │       ├── settings_window.py
 │       └── pages/
-│           ├── todos.py      # Kanban page
-│           ├── timetable.py  # Calendar page
-│           ├── memo.py       # AI MEMO page
-│           └── plan.py       # Roadmap page
+│           ├── todos.py          # Kanban page
+│           ├── timetable.py      # Calendar page
+│           ├── memo.py           # AI MEMO page
+│           └── plan.py           # Roadmap page
 ```

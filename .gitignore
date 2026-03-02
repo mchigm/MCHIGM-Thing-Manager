@@ -10,6 +10,17 @@ build/
 .eggs/
 *.pyo
 
+# PyInstaller
+*.spec.bak
+*.manifest
+
+# Installer build artifacts
+installer_output/
+pkg_build/
+*.pkg
+*.dmg
+Output/
+
 # Virtual environments
 .venv/
 venv/
