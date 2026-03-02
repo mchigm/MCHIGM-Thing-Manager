@@ -175,7 +175,7 @@ class TodosPage(QWidget):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
 
-        label = QLabel("Tracker appears when cards enter Doing.")
+        label = QLabel("Tracker is available while there are cards in Doing.")
         label.setStyleSheet("color: #a0a0b0; font-size: 12px;")
         layout.addWidget(label)
 
