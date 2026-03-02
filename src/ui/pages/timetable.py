@@ -100,13 +100,13 @@ class TimetablePage(QWidget):
             if scenario_name != "All":
                 query = query.join(Scenario).filter(Scenario.name == scenario_name)
             if filters.tags:
-                query = query.join(Item.tags).filter(Tag.name.in_(filters.tags))
+                query = query.filter(Item.tags.any(Tag.name.in_(filters.tags)))
             if filters.statuses:
                 query = query.filter(Item.status.in_(filters.statuses))
             for term in filters.terms:
                 like = f"%{term}%"
                 query = query.filter(or_(Item.title.ilike(like), Item.description.ilike(like)))
-            unscheduled = query.order_by(Item.created_at).distinct().all()
+            unscheduled = query.order_by(Item.created_at).all()
 
         if self._unscheduled_layout is None:
             return
