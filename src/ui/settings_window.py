@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.mcp_client import MCPClientManager
+from src.calendar_sync import CalendarSyncManager, CalendarProvider
 from src.settings_store import load_settings, save_settings
 
 
@@ -42,6 +43,15 @@ class SettingsWindow(QDialog):
         self._mcp_manager = MCPClientManager()
         self._mcp_server_edit = None
         self._mcp_status_label = None
+        self._calendar_manager = CalendarSyncManager()
+        self._calendar_provider_combo = None
+        self._google_creds_edit = None
+        self._outlook_client_id_edit = None
+        self._outlook_client_secret_edit = None
+        self._outlook_tenant_id_edit = None
+        self._calendar_status_label = None
+        self._calendar_auto_sync_cb = None
+        self._calendar_sync_interval_combo = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -57,6 +67,7 @@ class SettingsWindow(QDialog):
         tabs.addTab(self._build_data_tab(), "Data Management")
         tabs.addTab(self._build_ai_tab(), "AI Agent")
         tabs.addTab(self._build_mcp_tab(), "MCP Client")
+        tabs.addTab(self._build_calendar_tab(), "Calendar Sync")
         root.addWidget(tabs, stretch=1)
 
         buttons = QDialogButtonBox(
@@ -222,6 +233,151 @@ class SettingsWindow(QDialog):
         return tab
 
     # ------------------------------------------------------------------
+    # Calendar Sync tab
+    # ------------------------------------------------------------------
+    def _build_calendar_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        intro = QLabel(
+            "Sync events with Google Calendar or Microsoft Outlook. "
+            "Install required packages to enable cloud calendar integration."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #808090; font-size: 11px;")
+        layout.addWidget(intro)
+
+        # Provider selection
+        provider_box = QGroupBox("Calendar Provider")
+        provider_form = QFormLayout(provider_box)
+
+        self._calendar_provider_combo = QComboBox()
+        self._calendar_provider_combo.addItems(["None", "Google Calendar", "Microsoft Outlook"])
+        # Set current provider from settings
+        current_provider = self._settings.get("calendar_provider", "none")
+        if current_provider == "google":
+            self._calendar_provider_combo.setCurrentIndex(1)
+        elif current_provider == "outlook":
+            self._calendar_provider_combo.setCurrentIndex(2)
+        else:
+            self._calendar_provider_combo.setCurrentIndex(0)
+        self._calendar_provider_combo.currentIndexChanged.connect(self._on_calendar_provider_changed)
+        provider_form.addRow("Provider:", self._calendar_provider_combo)
+
+        self._calendar_status_label = QLabel("Not connected")
+        self._calendar_status_label.setStyleSheet("color: #808090; font-size: 11px;")
+        provider_form.addRow("Status:", self._calendar_status_label)
+
+        layout.addWidget(provider_box)
+
+        # Google Calendar settings
+        google_box = QGroupBox("Google Calendar Settings")
+        google_form = QFormLayout(google_box)
+
+        google_row = QHBoxLayout()
+        self._google_creds_edit = QLineEdit()
+        self._google_creds_edit.setPlaceholderText("Path to credentials.json")
+        self._google_creds_edit.setText(self._settings.get("google_credentials_path", ""))
+        google_row.addWidget(self._google_creds_edit, stretch=1)
+
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self._browse_google_credentials)
+        google_row.addWidget(browse_btn)
+
+        google_form.addRow("Credentials:", google_row)
+
+        hint = QLabel(
+            "Get credentials.json from Google Cloud Console → APIs & Services → Credentials"
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #808090; font-size: 10px;")
+        google_form.addRow("", hint)
+
+        layout.addWidget(google_box)
+        self._google_settings_box = google_box
+
+        # Outlook settings
+        outlook_box = QGroupBox("Microsoft Outlook Settings")
+        outlook_form = QFormLayout(outlook_box)
+
+        self._outlook_client_id_edit = QLineEdit()
+        self._outlook_client_id_edit.setPlaceholderText("Azure AD Client ID")
+        self._outlook_client_id_edit.setText(self._settings.get("outlook_client_id", ""))
+        outlook_form.addRow("Client ID:", self._outlook_client_id_edit)
+
+        self._outlook_client_secret_edit = QLineEdit()
+        self._outlook_client_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._outlook_client_secret_edit.setPlaceholderText("Azure AD Client Secret")
+        self._outlook_client_secret_edit.setText(self._settings.get("outlook_client_secret", ""))
+        outlook_form.addRow("Client Secret:", self._outlook_client_secret_edit)
+
+        self._outlook_tenant_id_edit = QLineEdit()
+        self._outlook_tenant_id_edit.setPlaceholderText("Azure AD Tenant ID")
+        self._outlook_tenant_id_edit.setText(self._settings.get("outlook_tenant_id", ""))
+        outlook_form.addRow("Tenant ID:", self._outlook_tenant_id_edit)
+
+        hint2 = QLabel(
+            "Register an app in Azure AD → App registrations to get these values"
+        )
+        hint2.setWordWrap(True)
+        hint2.setStyleSheet("color: #808090; font-size: 10px;")
+        outlook_form.addRow("", hint2)
+
+        layout.addWidget(outlook_box)
+        self._outlook_settings_box = outlook_box
+
+        # Sync settings
+        sync_box = QGroupBox("Sync Settings")
+        sync_form = QFormLayout(sync_box)
+
+        self._calendar_auto_sync_cb = QCheckBox("Enable automatic sync")
+        self._calendar_auto_sync_cb.setChecked(self._settings.get("calendar_auto_sync", True))
+        sync_form.addRow("Auto Sync:", self._calendar_auto_sync_cb)
+
+        self._calendar_sync_interval_combo = QComboBox()
+        self._calendar_sync_interval_combo.addItems(["5 minutes", "15 minutes", "30 minutes", "1 hour"])
+        # Set current interval
+        interval = self._settings.get("calendar_sync_interval", 15)
+        if interval == 5:
+            self._calendar_sync_interval_combo.setCurrentIndex(0)
+        elif interval == 15:
+            self._calendar_sync_interval_combo.setCurrentIndex(1)
+        elif interval == 30:
+            self._calendar_sync_interval_combo.setCurrentIndex(2)
+        elif interval == 60:
+            self._calendar_sync_interval_combo.setCurrentIndex(3)
+        sync_form.addRow("Sync Interval:", self._calendar_sync_interval_combo)
+
+        layout.addWidget(sync_box)
+
+        # Action buttons
+        btn_row = QHBoxLayout()
+
+        connect_btn = QPushButton("Connect")
+        connect_btn.clicked.connect(self._connect_calendar)
+        btn_row.addWidget(connect_btn)
+
+        disconnect_btn = QPushButton("Disconnect")
+        disconnect_btn.clicked.connect(self._disconnect_calendar)
+        btn_row.addWidget(disconnect_btn)
+
+        sync_now_btn = QPushButton("Sync Now")
+        sync_now_btn.clicked.connect(self._sync_calendar_now)
+        btn_row.addWidget(sync_now_btn)
+
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        layout.addStretch()
+
+        # Update initial visibility based on provider
+        self._on_calendar_provider_changed(self._calendar_provider_combo.currentIndex())
+
+        return tab
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
     @staticmethod
@@ -262,6 +418,16 @@ class SettingsWindow(QDialog):
                     QMessageBox.critical(self, "Restore Failed", str(exc))
 
     def _save_and_close(self) -> None:
+        # Get calendar sync interval
+        interval_idx = self._calendar_sync_interval_combo.currentIndex() if self._calendar_sync_interval_combo else 1
+        interval_map = {0: 5, 1: 15, 2: 30, 3: 60}
+        sync_interval = interval_map.get(interval_idx, 15)
+
+        # Get calendar provider
+        provider_idx = self._calendar_provider_combo.currentIndex() if self._calendar_provider_combo else 0
+        provider_map = {0: "none", 1: "google", 2: "outlook"}
+        calendar_provider = provider_map.get(provider_idx, "none")
+
         if self._model_edit is not None and self._api_key_edit is not None:
             save_settings(
                 {
@@ -269,6 +435,15 @@ class SettingsWindow(QDialog):
                     "ai_api_key": self._api_key_edit.text().strip(),
                     "mcp_server_url": (self._mcp_server_edit.text().strip() if self._mcp_server_edit else ""),
                     "mcp_status": "connected" if self._mcp_manager.connected else "disconnected",
+                    # Calendar sync settings
+                    "calendar_provider": calendar_provider,
+                    "calendar_connected": self._calendar_manager.connected,
+                    "google_credentials_path": (self._google_creds_edit.text().strip() if self._google_creds_edit else ""),
+                    "outlook_client_id": (self._outlook_client_id_edit.text().strip() if self._outlook_client_id_edit else ""),
+                    "outlook_client_secret": (self._outlook_client_secret_edit.text().strip() if self._outlook_client_secret_edit else ""),
+                    "outlook_tenant_id": (self._outlook_tenant_id_edit.text().strip() if self._outlook_tenant_id_edit else ""),
+                    "calendar_auto_sync": (self._calendar_auto_sync_cb.isChecked() if self._calendar_auto_sync_cb else True),
+                    "calendar_sync_interval": sync_interval,
                 }
             )
         self.accept()
@@ -289,3 +464,98 @@ class SettingsWindow(QDialog):
         if self._mcp_status_label:
             status = "connected" if self._mcp_manager.connected else "disconnected"
             self._mcp_status_label.setText(f"{status} — {message}")
+
+    # ------------------------------------------------------------------
+    # Calendar sync helpers
+    # ------------------------------------------------------------------
+    def _on_calendar_provider_changed(self, index: int) -> None:
+        """Show/hide provider-specific settings based on selection."""
+        if hasattr(self, '_google_settings_box') and hasattr(self, '_outlook_settings_box'):
+            if index == 1:  # Google Calendar
+                self._google_settings_box.setVisible(True)
+                self._outlook_settings_box.setVisible(False)
+            elif index == 2:  # Microsoft Outlook
+                self._google_settings_box.setVisible(False)
+                self._outlook_settings_box.setVisible(True)
+            else:  # None
+                self._google_settings_box.setVisible(False)
+                self._outlook_settings_box.setVisible(False)
+
+    def _browse_google_credentials(self) -> None:
+        """Open file dialog to select Google credentials JSON file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Google Credentials File",
+            str(Path.home()),
+            "JSON Files (*.json)"
+        )
+        if file_path and self._google_creds_edit:
+            self._google_creds_edit.setText(file_path)
+
+    def _connect_calendar(self) -> None:
+        """Connect to the selected calendar provider."""
+        if not self._calendar_provider_combo:
+            return
+
+        provider_idx = self._calendar_provider_combo.currentIndex()
+
+        if provider_idx == 0:  # None
+            QMessageBox.information(
+                self,
+                "Calendar Sync",
+                "Please select a calendar provider first."
+            )
+            return
+        elif provider_idx == 1:  # Google Calendar
+            creds_path = self._google_creds_edit.text().strip() if self._google_creds_edit else ""
+            result = self._calendar_manager.connect_google(creds_path)
+            self._update_calendar_status(result.message)
+            if result.success:
+                QMessageBox.information(self, "Calendar Sync", result.message)
+            else:
+                QMessageBox.warning(self, "Calendar Sync", result.message)
+        elif provider_idx == 2:  # Microsoft Outlook
+            client_id = self._outlook_client_id_edit.text().strip() if self._outlook_client_id_edit else ""
+            client_secret = self._outlook_client_secret_edit.text().strip() if self._outlook_client_secret_edit else ""
+            tenant_id = self._outlook_tenant_id_edit.text().strip() if self._outlook_tenant_id_edit else ""
+            result = self._calendar_manager.connect_outlook(client_id, client_secret, tenant_id)
+            self._update_calendar_status(result.message)
+            if result.success:
+                QMessageBox.information(self, "Calendar Sync", result.message)
+            else:
+                QMessageBox.warning(self, "Calendar Sync", result.message)
+
+    def _disconnect_calendar(self) -> None:
+        """Disconnect from the current calendar provider."""
+        result = self._calendar_manager.disconnect()
+        self._update_calendar_status(result.message)
+        QMessageBox.information(self, "Calendar Sync", result.message)
+
+    def _sync_calendar_now(self) -> None:
+        """Trigger an immediate calendar sync."""
+        if not self._calendar_manager.connected:
+            QMessageBox.warning(
+                self,
+                "Calendar Sync",
+                "Not connected to any calendar provider. Please connect first."
+            )
+            return
+
+        # In a real implementation, this would:
+        # 1. Get all Items with type=EVENT from the database
+        # 2. Call calendar_manager.sync_to_cloud(items)
+        # 3. Call calendar_manager.sync_from_cloud()
+        # 4. Show results to the user
+
+        QMessageBox.information(
+            self,
+            "Calendar Sync",
+            "Manual sync triggered. (Real sync implementation to be completed)\n\n"
+            "This would sync all events with the connected calendar provider."
+        )
+
+    def _update_calendar_status(self, message: str) -> None:
+        """Update the calendar status label."""
+        if self._calendar_status_label:
+            status = self._calendar_manager.get_status_text()
+            self._calendar_status_label.setText(f"{status} — {message}")
