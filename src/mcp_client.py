@@ -48,10 +48,12 @@ class MCPClientManager:
             self.last_error = "Install the official 'mcp[cli]' package to enable connections."
             return MCPConnectionResult(False, self.last_error)
 
-        # Placeholder for a real client connection; mark as connected to reflect intent.
-        self.connected = True
-        self.last_error = ""
-        return MCPConnectionResult(True, f"Connected to {self.server_url}")
+        # Placeholder for a real client connection. The SDK is available, but
+        # no actual connection logic has been implemented yet, so we do not
+        # report a successful connection.
+        self.connected = False
+        self.last_error = "MCP SDK available, but connection is not implemented yet."
+        return MCPConnectionResult(False, self.last_error)
 
     def disconnect(self) -> MCPConnectionResult:
         self.connected = False

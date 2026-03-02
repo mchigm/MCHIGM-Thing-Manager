@@ -200,7 +200,8 @@ class SettingsWindow(QDialog):
         self._mcp_server_edit.setText(self._settings.get("mcp_server_url", ""))
         form.addRow("Server URL:", self._mcp_server_edit)
 
-        self._mcp_status_label = QLabel(self._settings.get("mcp_status", "disconnected"))
+        mcp_status_text = "connected" if getattr(self._mcp_manager, "connected", False) else "disconnected"
+        self._mcp_status_label = QLabel(mcp_status_text)
         self._mcp_status_label.setStyleSheet("color: #808090; font-size: 11px;")
         form.addRow("Status:", self._mcp_status_label)
 
@@ -267,9 +268,7 @@ class SettingsWindow(QDialog):
                     "ai_model": self._model_edit.text().strip(),
                     "ai_api_key": self._api_key_edit.text().strip(),
                     "mcp_server_url": (self._mcp_server_edit.text().strip() if self._mcp_server_edit else ""),
-                    "mcp_status": (
-                        "connected" if self._mcp_manager.connected else self._settings.get("mcp_status", "disconnected")
-                    ),
+                    "mcp_status": "connected" if self._mcp_manager.connected else "disconnected",
                 }
             )
         self.accept()
