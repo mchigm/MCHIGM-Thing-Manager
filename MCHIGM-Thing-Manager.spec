@@ -84,7 +84,7 @@ if sys.platform == 'darwin':
         bundle_identifier='com.mchigm.thing-manager',
         info_plist={
             'NSPrincipalClass': 'NSApplication',
-            'NSHighResolutionCapable': 'True',
+            'NSHighResolutionCapable': True,
             'CFBundleShortVersionString': '1.0.0',
             'CFBundleVersion': '1.0.0',
         },

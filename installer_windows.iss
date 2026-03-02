@@ -97,7 +97,7 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    DataDir := ExpandConstant('{userdocs}\.mchigm_thing_manager');
+    DataDir := ExpandConstant('{userhome}\.mchigm_thing_manager');
 
     if DirExists(DataDir) then
     begin

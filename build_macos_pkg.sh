@@ -61,9 +61,24 @@ else
     ACTUAL_USER="$USER"
 fi
 
-# Get the user's home directory
-USER_HOME=$(eval echo ~$ACTUAL_USER)
+# Validate username to contain only safe characters
+if ! printf '%s\n' "$ACTUAL_USER" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]*$'; then
+    echo "Error: Unsafe username detected: $ACTUAL_USER" >&2
+    exit 1
+fi
 
+# Get the user's home directory in a safe way
+USER_HOME=$(/usr/bin/dscl . -read "/Users/${ACTUAL_USER}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+
+# Fallback to HOME if dscl fails and ACTUAL_USER is the current user
+if [ -z "$USER_HOME" ]; then
+    if [ "$ACTUAL_USER" = "$USER" ] && [ -n "$HOME" ]; then
+        USER_HOME="$HOME"
+    else
+        echo "Error: Could not determine home directory for user ${ACTUAL_USER}" >&2
+        exit 1
+    fi
+fi
 # Create data directory
 DATA_DIR="${USER_HOME}/.mchigm_thing_manager"
 mkdir -p "${DATA_DIR}"
@@ -221,15 +236,14 @@ else
     echo "No LICENSE file found" > "${RESOURCES_DIR}/license.txt"
 fi
 
+# Create installer_output directory if it doesn't exist
+mkdir -p installer_output
+
 echo "Step 8: Building product archive..."
 productbuild --distribution "${BUILD_DIR}/distribution.xml" \
              --resources "${RESOURCES_DIR}" \
              --package-path "${BUILD_DIR}" \
              "installer_output/${PKG_NAME}"
-
-# Create installer_output directory if it doesn't exist
-mkdir -p installer_output
-
 echo ""
 echo "=========================================="
 echo "Build completed successfully!"
