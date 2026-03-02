@@ -13,8 +13,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy import or_
 
-from src.database.models import Item, ItemStatus, Scenario, SessionLocal
+from src.database.models import Item, ItemStatus, Scenario, SessionLocal, Tag
+from src.ui.search_filters import parse_search_text
 
 _COLUMN_COLORS = {
     ItemStatus.BACKLOG: "#4a4a5a",
@@ -121,14 +123,22 @@ class TodosPage(QWidget):
 
         root.addLayout(columns_row)
 
-    def refresh_items(self, scenario_name: str = "All") -> None:
+    def refresh_items(self, scenario_name: str = "All", search_text: str = "") -> None:
         """Load items from the database and populate columns."""
+        filters = parse_search_text(search_text)
         cards: dict[ItemStatus, list[str]] = {status: [] for status in ItemStatus}
         with SessionLocal() as session:
-            query = session.query(Item).order_by(Item.created_at)
+            query = session.query(Item)
             if scenario_name != "All":
                 query = query.join(Scenario).filter(Scenario.name == scenario_name)
-            for item in query.all():
+            if filters.tags:
+                query = query.join(Item.tags).filter(Tag.name.in_(filters.tags))
+            if filters.statuses:
+                query = query.filter(Item.status.in_(filters.statuses))
+            for term in filters.terms:
+                like = f"%{term}%"
+                query = query.filter(or_(Item.title.ilike(like), Item.description.ilike(like)))
+            for item in query.order_by(Item.created_at).distinct().all():
                 parts = [item.title, f"Type: {item.type.value}"]
                 if item.deadline:
                     parts.append(f"Deadline: {item.deadline.strftime('%b %d, %H:%M')}")
