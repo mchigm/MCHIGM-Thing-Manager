@@ -70,6 +70,14 @@ To compile the application into standalone executables for Windows or macOS, see
 - Windows: Run `build_windows.bat`
 - macOS: Run `./build_mac.sh`
 
+## Uninstalling
+
+To completely remove the application and all user data:
+- Windows: Run `uninstall_windows.bat`
+- macOS: Run `./uninstall_mac.sh`
+
+See [BUILD.md](BUILD.md#uninstallation) for detailed uninstallation instructions.
+
 ## Project Structure
 
 ```
@@ -80,6 +88,8 @@ MCHIGM-Thing-Manager/
 ├── BUILD.md                  # Build instructions for executables
 ├── build_windows.bat         # Windows build script
 ├── build_mac.sh              # macOS build script
+├── uninstall_windows.bat     # Windows uninstaller
+├── uninstall_mac.sh          # macOS uninstaller
 ├── MCHIGM-Thing-Manager.spec # PyInstaller configuration
 ├── src/
 │   ├── database/

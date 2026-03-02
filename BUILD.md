@@ -241,6 +241,50 @@ Before distributing:
 4. Verify all UI elements render correctly
 5. Test file permissions and paths
 
+## Uninstallation
+
+To completely remove MCHIGM Thing Manager from your system, use the provided uninstaller scripts.
+
+### Uninstalling on Windows
+
+1. Run the uninstaller script:
+   ```batch
+   uninstall_windows.bat
+   ```
+
+2. To also remove the executable, provide its path:
+   ```batch
+   uninstall_windows.bat "C:\path\to\MCHIGM-Thing-Manager.exe"
+   ```
+
+3. Follow the prompts to confirm uninstallation
+
+### Uninstalling on macOS
+
+1. Run the uninstaller script:
+   ```bash
+   ./uninstall_mac.sh
+   ```
+
+2. To also remove the application bundle, provide its path:
+   ```bash
+   ./uninstall_mac.sh "/Applications/MCHIGM Thing Manager.app"
+   ```
+
+3. Alternatively, you can manually:
+   - Drag the app from Applications to Trash
+   - Run: `rm -rf ~/.mchigm_thing_manager`
+
+### What Gets Removed
+
+The uninstaller removes:
+- **Application Data**: `~/.mchigm_thing_manager/` (Windows: `%USERPROFILE%\.mchigm_thing_manager\`)
+  - Database file: `things.db`
+  - Settings file: `settings.json`
+- **Executable/App Bundle**: If path is provided to the uninstaller
+
+**Important**: Uninstallation is permanent and cannot be undone. Make sure to back up your data if needed before uninstalling.
+
 ## Support
 
 For build issues, check:
@@ -264,6 +308,8 @@ MCHIGM-Thing-Manager/
 ├── MCHIGM-Thing-Manager.spec
 ├── build_windows.bat
 ├── build_mac.sh
+├── uninstall_windows.bat    # Windows uninstaller
+├── uninstall_mac.sh         # macOS uninstaller
 └── BUILD.md            # This file
 ```
 
