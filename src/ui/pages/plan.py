@@ -21,8 +21,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from sqlalchemy import or_
+from sqlalchemy.orm import selectinload
 
-from src.database.models import Item, ItemStatus, Scenario, SessionLocal, Tag
+from src.database.models import Dependency, Item, ItemStatus, Scenario, SessionLocal, Tag
 from src.ui.search_filters import parse_search_text
 
 _STATUS_COLOR = {
@@ -93,7 +94,11 @@ class PlanPage(QWidget):
     def _query_items(self, scenario_name: str, search_text: str) -> list[Item]:
         filters = parse_search_text(search_text)
         with SessionLocal() as session:
-            query = session.query(Item).outerjoin(Scenario)
+            query = (
+                session.query(Item)
+                .options(selectinload(Item.parent_links).selectinload(Dependency.parent))
+                .outerjoin(Scenario)
+            )
             if scenario_name != "All":
                 query = query.filter(Scenario.name == scenario_name)
             if filters.tags:
