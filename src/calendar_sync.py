@@ -60,12 +60,18 @@ class CalendarSyncManager:
     @staticmethod
     def is_google_sdk_available() -> bool:
         """Check if Google Calendar API client is installed."""
-        return importlib.util.find_spec("google.oauth2") is not None
+        try:
+            return importlib.util.find_spec("google.oauth2") is not None
+        except (ImportError, ModuleNotFoundError):
+            return False
 
     @staticmethod
     def is_outlook_sdk_available() -> bool:
         """Check if Microsoft Graph SDK is installed."""
-        return importlib.util.find_spec("msal") is not None
+        try:
+            return importlib.util.find_spec("msal") is not None
+        except (ImportError, ModuleNotFoundError):
+            return False
 
     # ------------------------------------------------------------------
     # Connection management
