@@ -18,11 +18,14 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QLineEdit,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+
+from src.settings_store import load_settings, save_settings
 
 
 class SettingsWindow(QDialog):
@@ -32,6 +35,9 @@ class SettingsWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumSize(480, 360)
+        self._settings = load_settings()
+        self._model_edit = None
+        self._api_key_edit = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -45,9 +51,13 @@ class SettingsWindow(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._build_general_tab(), "General")
         tabs.addTab(self._build_data_tab(), "Data Management")
+        tabs.addTab(self._build_ai_tab(), "AI Agent")
         root.addWidget(tabs, stretch=1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Close
+        )
+        buttons.accepted.connect(self._save_and_close)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
@@ -124,6 +134,43 @@ class SettingsWindow(QDialog):
         return tab
 
     # ------------------------------------------------------------------
+    # AI tab
+    # ------------------------------------------------------------------
+    def _build_ai_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        model_box = QGroupBox("Model Selection")
+        model_form = QFormLayout(model_box)
+
+        self._model_edit = QLineEdit()
+        self._model_edit.setPlaceholderText("e.g., gpt-4o-mini, claude-3-haiku")
+        self._model_edit.setText(self._settings.get("ai_model", ""))
+        model_form.addRow("Model:", self._model_edit)
+        layout.addWidget(model_box)
+
+        creds_box = QGroupBox("Credentials")
+        creds_form = QFormLayout(creds_box)
+
+        self._api_key_edit = QLineEdit()
+        self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._api_key_edit.setPlaceholderText("API key (stored locally)")
+        self._api_key_edit.setText(self._settings.get("ai_api_key", ""))
+        creds_form.addRow("API Key:", self._api_key_edit)
+        layout.addWidget(creds_box)
+
+        hint = QLabel(
+            "AI is optional. Without a key, MEMO will save notes locally without calling a model."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #808090; font-size: 11px;")
+        layout.addWidget(hint)
+        layout.addStretch()
+        return tab
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
     @staticmethod
@@ -162,3 +209,13 @@ class SettingsWindow(QDialog):
                     )
                 except Exception as exc:
                     QMessageBox.critical(self, "Restore Failed", str(exc))
+
+    def _save_and_close(self) -> None:
+        if self._model_edit is not None and self._api_key_edit is not None:
+            save_settings(
+                {
+                    "ai_model": self._model_edit.text().strip(),
+                    "ai_api_key": self._api_key_edit.text().strip(),
+                }
+            )
+        self.accept()

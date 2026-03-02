@@ -21,8 +21,8 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 |-------|-------|
 | 1 | Foundation — DB schema, GUI shell, Settings, Scenario filter |
 | 2 | Core views (Kanban, Calendar) & Omni-Search |
-| **3 (Current)** | AI Brain — LLM integration & MEMO chat |
-| 4 | MCP client, Google Calendar / Outlook sync |
+| 3 | AI Brain — LLM integration & MEMO chat |
+| **4 （Current)** | MCP client, Google Calendar / Outlook sync |
 | 5 | Plan page (Gantt), Hotkeys, PDF export |
 
 ## Setup
@@ -52,6 +52,11 @@ python main.py
 The SQLite database is created automatically at `~/.mchigm_thing_manager/things.db`.
 Default scenarios, tags, and a handful of sample items are seeded on first launch so
 the Kanban and Timetable views have data to display.
+
+### AI (optional)
+- Open **Settings → AI Agent** to set your model name (e.g., `gpt-4o-mini`, `claude-3-haiku`)
+  and API key (stored locally at `~/.mchigm_thing_manager/settings.json`).
+- Without a key, the MEMO page will still capture your text as a Backlog note.
 
 ## Project Structure
 

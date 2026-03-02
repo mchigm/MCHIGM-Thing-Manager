@@ -216,7 +216,7 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self._todos_page = TodosPage()
         self._timetable_page = TimetablePage()
-        self._memo_page = MemoPage()
+        self._memo_page = MemoPage(on_items_created=self._refresh_pages)
         self._plan_page = PlanPage()
 
         self._stack.addWidget(self._todos_page)
