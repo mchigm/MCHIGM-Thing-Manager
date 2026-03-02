@@ -94,76 +94,83 @@ class MemoPage(QWidget):
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         QApplication.processEvents()
 
-        settings = load_settings()
-        ai_text, items = call_memo_agent(
-            text, settings.get("ai_model", ""), settings.get("ai_api_key", "")
-        )
-
-        created = self._persist_items(items)
-        if ai_text:
-            self._history.append(f"<b>AI:</b> {ai_text}")
-        if created:
-            self._history.append(
-                f"<i style='color:#7ab97a;'>Created {created} item(s) and refreshed views.</i>"
+        try:
+            settings = load_settings()
+            ai_text, items = call_memo_agent(
+                text, settings.get("ai_model", ""), settings.get("ai_api_key", "")
             )
-            if self._on_items_created:
-                self._on_items_created()
-        elif not ai_text:
-            self._history.append("<i style='color:#606070;'>No AI response.</i>")
 
-        QApplication.restoreOverrideCursor()
-        self._send_btn.setEnabled(True)
-
+            created = self._persist_items(items)
+            if ai_text:
+                self._history.append(f"<b>AI:</b> {ai_text}")
+            if created:
+                self._history.append(
+                    f"<i style='color:#7ab97a;'>Created {created} item(s) and refreshed views.</i>"
+                )
+                if self._on_items_created:
+                    self._on_items_created()
+            elif not ai_text:
+                self._history.append("<i style='color:#606070;'>No AI response.</i>")
+        except Exception:
+            self._history.append(
+                "<i style='color:#b97a7a;'>An error occurred while generating or saving the AI memo. Please try again.</i>"
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+            self._send_btn.setEnabled(True)
     def _persist_items(self, items: list[GeneratedItem]) -> int:
         if not items:
             return 0
         with SessionLocal() as session:
-            scenarios = {s.name: s for s in session.query(Scenario).all()}
-            tags = {t.name: t for t in session.query(Tag).all()}
-            created: list[tuple[GeneratedItem, Item]] = []
+            with session.begin():
+                scenarios = {s.name: s for s in session.query(Scenario).all()}
+                tags = {t.name: t for t in session.query(Tag).all()}
+                created: list[tuple[GeneratedItem, Item]] = []
 
-            for gen in items:
-                scenario = None
-                if gen.scenario:
-                    scenario = scenarios.get(gen.scenario)
-                    if scenario is None:
-                        scenario = Scenario(name=gen.scenario)
-                        session.add(scenario)
-                        session.flush()
-                        scenarios[gen.scenario] = scenario
+                for gen in items:
+                    scenario = None
+                    if gen.scenario:
+                        scenario = scenarios.get(gen.scenario)
+                        if scenario is None:
+                            scenario = Scenario(name=gen.scenario)
+                            session.add(scenario)
+                            session.flush()
+                            scenarios[gen.scenario] = scenario
 
-                db_item = Item(
-                    title=gen.title,
-                    description=gen.description,
-                    type=gen.type,
-                    status=gen.status,
-                    start_time=gen.start_time,
-                    end_time=gen.end_time,
-                    deadline=gen.deadline,
-                    scenario=scenario,
-                )
+                    db_item = Item(
+                        title=gen.title,
+                        description=gen.description,
+                        type=gen.type,
+                        status=gen.status,
+                        start_time=gen.start_time,
+                        end_time=gen.end_time,
+                        deadline=gen.deadline,
+                        scenario=scenario,
+                    )
 
-                db_tags = []
-                for tag_name in gen.tags:
-                    tag = tags.get(tag_name)
-                    if tag is None:
-                        tag = Tag(name=tag_name)
-                        session.add(tag)
-                        session.flush()
-                        tags[tag_name] = tag
-                    db_tags.append(tag)
-                db_item.tags = db_tags
+                    db_tags = []
+                    for tag_name in gen.tags:
+                        tag = tags.get(tag_name)
+                        if tag is None:
+                            tag = Tag(name=tag_name)
+                            session.add(tag)
+                            session.flush()
+                            tags[tag_name] = tag
+                        db_tags.append(tag)
+                    db_item.tags = db_tags
 
-                session.add(db_item)
-                created.append((gen, db_item))
+                    session.add(db_item)
+                    created.append((gen, db_item))
 
-            session.commit()
+                # Ensure items have primary keys before creating dependencies
+                session.flush()
 
-            title_map = {gen.title: db_item for gen, db_item in created}
-            for gen, db_item in created:
-                for parent_title in gen.depends_on:
-                    parent = title_map.get(parent_title)
-                    if parent:
-                        session.add(Dependency(parent_id=parent.id, child_id=db_item.id))
-            session.commit()
+                title_map = {gen.title: db_item for gen, db_item in created}
+                for gen, db_item in created:
+                    for parent_title in gen.depends_on:
+                        parent = title_map.get(parent_title)
+                        if parent:
+                            session.add(
+                                Dependency(parent_id=parent.id, child_id=db_item.id)
+                            )
             return len(created)

@@ -161,6 +161,9 @@ def call_memo_agent(user_text: str, model: str, api_key: str) -> Tuple[str, List
         if not json_block:
             return content, []
         payload = json.loads(json_block)
+        if not isinstance(payload, dict):
+            # Malformed JSON structure from model; return content without items.
+            return content, []
         items = _items_from_payload(payload)
         return content, items
     except Exception as exc:
