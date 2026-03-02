@@ -53,6 +53,11 @@ The SQLite database is created automatically at `~/.mchigm_thing_manager/things.
 Default scenarios, tags, and a handful of sample items are seeded on first launch so
 the Kanban and Timetable views have data to display.
 
+### AI (optional)
+- Open **Settings → AI Agent** to set your model name (e.g., `gpt-4o-mini`, `claude-3-haiku`)
+  and API key (stored locally at `~/.mchigm_thing_manager/settings.json`).
+- Without a key, the MEMO page will still capture your text as a Backlog note.
+
 ## Project Structure
 
 ```
