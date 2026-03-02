@@ -1,0 +1,109 @@
+name: Build Executables
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  build-windows:
+    name: Build Windows Executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Build executable
+        run: pyinstaller MCHIGM-Thing-Manager.spec
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCHIGM-Thing-Manager-Windows
+          path: dist/MCHIGM-Thing-Manager.exe
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS Application
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Build application
+        run: pyinstaller MCHIGM-Thing-Manager.spec
+
+      - name: Create DMG (optional)
+        run: |
+          # Install create-dmg if you want to create a DMG file
+          # brew install create-dmg
+          # create-dmg --volname "MCHIGM Thing Manager" --window-pos 200 120 --window-size 800 400 --icon-size 100 --app-drop-link 600 185 "MCHIGM-Thing-Manager.dmg" "dist/MCHIGM Thing Manager.app"
+
+          # For now, just create a ZIP file
+          cd dist
+          zip -r -y "MCHIGM-Thing-Manager-macOS.zip" "MCHIGM Thing Manager.app"
+
+      - name: Upload macOS application
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCHIGM-Thing-Manager-macOS
+          path: dist/MCHIGM-Thing-Manager-macOS.zip
+          if-no-files-found: error
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')  # Only create release for tags
+
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MCHIGM-Thing-Manager-Windows
+          path: ./artifacts/windows
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MCHIGM-Thing-Manager-macOS
+          path: ./artifacts/macos
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./artifacts/windows/MCHIGM-Thing-Manager.exe
+            ./artifacts/macos/MCHIGM-Thing-Manager-macOS.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
