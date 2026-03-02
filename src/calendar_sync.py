@@ -59,17 +59,34 @@ class CalendarSyncManager:
     # ------------------------------------------------------------------
     @staticmethod
     def is_google_sdk_available() -> bool:
-        """Check if Google Calendar API client is installed."""
+        """Check if Google Calendar API client and dependencies are installed."""
         try:
-            return importlib.util.find_spec("google.oauth2") is not None
+            # Align checks with the packages mentioned in the error message:
+            # - google-auth              -> module: google.auth
+            # - google-auth-oauthlib     -> module: google_auth_oauthlib
+            # - google-auth-httplib2     -> module: google_auth_httplib2
+            # - google-api-python-client -> module: googleapiclient.discovery
+            required_modules = (
+                "google.auth",
+                "google_auth_oauthlib",
+                "google_auth_httplib2",
+                "googleapiclient.discovery",
+            )
+            return all(importlib.util.find_spec(m) is not None for m in required_modules)
         except (ImportError, ModuleNotFoundError):
             return False
 
     @staticmethod
     def is_outlook_sdk_available() -> bool:
-        """Check if Microsoft Graph SDK is installed."""
+        """Check if Microsoft Graph SDK and dependencies are installed."""
         try:
-            return importlib.util.find_spec("msal") is not None
+            # Check for both MSAL and Microsoft Graph SDK (msgraph),
+            # which are required for real Outlook sync.
+            required_modules = (
+                "msal",
+                "msgraph",
+            )
+            return all(importlib.util.find_spec(m) is not None for m in required_modules)
         except (ImportError, ModuleNotFoundError):
             return False
 
@@ -100,13 +117,14 @@ class CalendarSyncManager:
 
         try:
             # This would be the real OAuth flow with Google
-            # For now, we provide a scaffold showing the intent
+            # For now, we only record the selected provider; no real connection is made.
             self.provider = CalendarProvider.GOOGLE
-            self.connected = True
-            self.last_error = ""
+            # Do not mark as connected until OAuth is fully implemented.
+            self.connected = False
+            self.last_error = "Google Calendar OAuth connection not yet implemented."
             return CalendarSyncResult(
-                success=True,
-                message="Connected to Google Calendar. (Real OAuth flow to be implemented)"
+                success=False,
+                message="Google Calendar OAuth connection not yet implemented; provider configured but not connected."
             )
         except Exception as e:
             self.connected = False
@@ -138,14 +156,15 @@ class CalendarSyncManager:
             )
 
         try:
-            # This would be the real OAuth flow with Microsoft Graph
-            # For now, we provide a scaffold showing the intent
-            self.provider = CalendarProvider.OUTLOOK
-            self.connected = True
-            self.last_error = ""
+            # This would be the real OAuth flow with Microsoft Graph.
+            # Since it is not yet implemented, do not mark the manager as
+            # connected or change the active provider. Instead, return a
+            # clear "not implemented" result so callers can handle it
+            # appropriately.
+            self.last_error = "Outlook Calendar OAuth flow is not yet implemented."
             return CalendarSyncResult(
-                success=True,
-                message="Connected to Outlook Calendar. (Real OAuth flow to be implemented)"
+                success=False,
+                message="Outlook Calendar connection is not yet implemented. Please configure Google Calendar or disable Outlook sync."
             )
         except Exception as e:
             self.connected = False
