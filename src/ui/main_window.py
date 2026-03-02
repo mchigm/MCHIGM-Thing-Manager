@@ -4,19 +4,23 @@ Main application window for MCHIGM Thing Manager.
 Provides:
 - A left navigation bar with buttons for the 4 pages.
 - A Global Scenario (Workspace) dropdown in the top bar.
-- An Omni-Search bar stub.
+- An Omni-Search bar.
 - A Settings button.
 - Platform-aware window decorations.
+- Hotkeys for navigation and quick capture.
 """
 import sys
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QMainWindow,
     QPushButton,
     QSizePolicy,
@@ -25,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.database.models import Scenario, SessionLocal
+from src.database.models import Item, ItemStatus, ItemType, Scenario, SessionLocal
 from src.ui.pages.memo import MemoPage
 from src.ui.pages.plan import PlanPage
 from src.ui.pages.timetable import TimetablePage
@@ -83,8 +87,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MCHIGM Thing Manager")
         self.setMinimumSize(900, 620)
         self._page_buttons: list[QPushButton] = []
+        self._shortcuts: list[QShortcut] = []
         self._setup_platform_decorations()
         self._setup_ui()
+        self._register_shortcuts()
         self._load_scenarios()
 
     # ------------------------------------------------------------------
@@ -122,6 +128,17 @@ class MainWindow(QMainWindow):
         content_widget = QWidget()
         content_widget.setLayout(content)
         main_layout.addWidget(content_widget, stretch=1)
+
+    def _register_shortcuts(self) -> None:
+        """Set up navigation and quick capture shortcuts."""
+        for i in range(4):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
+            shortcut.activated.connect(lambda idx=i: self._navigate_to(idx))
+            self._shortcuts.append(shortcut)
+
+        quick_capture = QShortcut(QKeySequence("Ctrl+Space"), self)
+        quick_capture.activated.connect(self._open_quick_capture)
+        self._shortcuts.append(quick_capture)
 
     def _build_top_bar(self) -> QWidget:
         bar = QWidget()
@@ -289,3 +306,28 @@ class MainWindow(QMainWindow):
         search = self._search_bar.text()
         self._todos_page.refresh_items(scenario, search)
         self._timetable_page.refresh_items(scenario, search)
+        self._plan_page.refresh_items(scenario, search)
+
+    def _open_quick_capture(self) -> None:
+        """Capture a memo/task straight into Backlog (Ctrl+Space)."""
+        text, ok = QInputDialog.getText(self, "Quick Capture", "Memo or task title:")
+        if not ok or not text.strip():
+            return
+
+        with SessionLocal() as session:
+            scenario_obj = None
+            current = self._scenario_combo.currentText()
+            if current != "All":
+                scenario_obj = session.query(Scenario).filter(Scenario.name == current).first()
+            item = Item(
+                title=text.strip()[:255],
+                description="Captured via quick shortcut (Ctrl+Space).",
+                type=ItemType.NOTE,
+                status=ItemStatus.BACKLOG,
+                scenario=scenario_obj,
+            )
+            session.add(item)
+            session.commit()
+
+        QMessageBox.information(self, "Saved", "Captured to Backlog.")
+        self._refresh_pages()
