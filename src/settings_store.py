@@ -12,6 +12,15 @@ _DEFAULTS: Dict[str, Any] = {
     "ai_api_key": "",
     "mcp_server_url": "",
     "mcp_status": "disconnected",
+    # Calendar sync settings
+    "calendar_provider": "none",  # none, google, outlook
+    "calendar_connected": False,
+    "google_credentials_path": "",
+    "outlook_client_id": "",
+    "outlook_client_secret": "",
+    "outlook_tenant_id": "",
+    "calendar_auto_sync": True,
+    "calendar_sync_interval": 15,  # minutes
 }
 
 
