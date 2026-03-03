@@ -3,7 +3,8 @@ TODOs page — Kanban board (Backlog → To-Do → Doing → Done).
 
 Phase 1: Column structure with live items pulled from the database.
 """
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QMimeData, QByteArray
+from PyQt6.QtGui import QDrag, QCursor
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -13,6 +14,11 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QDialog,
+    QTextEdit,
+    QLineEdit,
+    QFormLayout,
+    QDialogButtonBox,
 )
 from sqlalchemy import or_
 
@@ -27,12 +33,152 @@ _COLUMN_COLORS = {
 }
 
 
+class DraggableCard(QLabel):
+    """A draggable Kanban card that stores its item ID and supports drag & drop."""
+
+    def __init__(self, text: str, item_id: int, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.item_id = item_id
+        self.setWordWrap(True)
+        self.setStyleSheet(
+            "background-color: #3c3c50; color: #e0e0e0; border-radius: 4px;"
+            "padding: 8px; font-size: 12px;"
+        )
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def mousePressEvent(self, event):
+        """Handle mouse press - start drag or open details on click."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move - initiate drag operation."""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if (event.pos() - self.drag_start_position).manhattanLength() < 10:
+            return
+
+        # Start drag operation
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        mime_data.setData("application/x-kanban-item", QByteArray.number(self.item_id))
+        drag.setMimeData(mime_data)
+        drag.exec(Qt.DropAction.MoveAction)
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release - open details if not dragging."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if (event.pos() - self.drag_start_position).manhattanLength() < 10:
+                # It was a click, not a drag - open details
+                self.show_details()
+        super().mouseReleaseEvent(event)
+
+    def show_details(self):
+        """Open item details dialog."""
+        with SessionLocal() as session:
+            item = session.query(Item).filter(Item.id == self.item_id).first()
+            if not item:
+                return
+
+            # Create dialog
+            dialog = ItemDetailsDialog(item, self)
+            if dialog.exec():
+                # Refresh the parent page if changes were made
+                todos_page = self.find_todos_page()
+                if todos_page:
+                    todos_page.refresh_current()
+
+    def find_todos_page(self):
+        """Find the TodosPage parent widget."""
+        widget = self.parent()
+        while widget:
+            if isinstance(widget, TodosPage):
+                return widget
+            widget = widget.parent()
+        return None
+
+
+class ItemDetailsDialog(QDialog):
+    """Dialog for viewing and editing item details."""
+
+    def __init__(self, item: Item, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.item_id = item.id
+        self.setWindowTitle(f"Item Details - {item.title}")
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(400)
+        self._setup_ui(item)
+
+    def _setup_ui(self, item: Item):
+        layout = QVBoxLayout(self)
+
+        # Form for editing
+        form = QFormLayout()
+
+        self.title_edit = QLineEdit(item.title)
+        self.title_edit.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 4px;"
+        )
+        form.addRow("Title:", self.title_edit)
+
+        self.description_edit = QTextEdit(item.description or "")
+        self.description_edit.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 4px;"
+        )
+        self.description_edit.setMinimumHeight(150)
+        form.addRow("Description:", self.description_edit)
+
+        # Read-only info
+        info_text = f"""
+        Type: {item.type.value}
+        Status: {item.status.value}
+        Scenario: {item.scenario.name if item.scenario else 'None'}
+        Tags: {', '.join(tag.name for tag in item.tags) if item.tags else 'None'}
+        Created: {item.created_at.strftime('%Y-%m-%d %H:%M')}
+        """
+        if item.deadline:
+            info_text += f"\nDeadline: {item.deadline.strftime('%Y-%m-%d %H:%M')}"
+        if item.start_time:
+            info_text += f"\nStart: {item.start_time.strftime('%Y-%m-%d %H:%M')}"
+        if item.end_time:
+            info_text += f"\nEnd: {item.end_time.strftime('%Y-%m-%d %H:%M')}"
+
+        info_label = QLabel(info_text.strip())
+        info_label.setStyleSheet("color: #a0a0b0; font-size: 11px; padding: 8px;")
+        info_label.setWordWrap(True)
+        form.addRow("Info:", info_label)
+
+        layout.addLayout(form)
+
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.save_changes)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def save_changes(self):
+        """Save changes to the database."""
+        with SessionLocal() as session:
+            item = session.query(Item).filter(Item.id == self.item_id).first()
+            if item:
+                item.title = self.title_edit.text().strip()[:255]
+                item.description = self.description_edit.toPlainText().strip()
+                session.commit()
+        self.accept()
+
+
 class KanbanColumn(QWidget):
     """A single Kanban column with a header and a scrollable card area."""
 
     def __init__(self, status: ItemStatus, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._status = status
+        self.setAcceptDrops(True)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -70,30 +216,75 @@ class KanbanColumn(QWidget):
         scroll.setWidget(self._cards_widget)
         root.addWidget(scroll)
 
-    def set_cards(self, card_texts: list[str]) -> None:
-        """Replace the column content with the provided cards."""
+    def dragEnterEvent(self, event):
+        """Accept drag events with kanban item data."""
+        if event.mimeData().hasFormat("application/x-kanban-item"):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        """Accept drag move events."""
+        if event.mimeData().hasFormat("application/x-kanban-item"):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        """Handle drop - update item status in database."""
+        if event.mimeData().hasFormat("application/x-kanban-item"):
+            item_id_bytes = event.mimeData().data("application/x-kanban-item")
+            item_id = int(item_id_bytes.data().decode())
+
+            # Update the item's status in the database
+            with SessionLocal() as session:
+                item = session.query(Item).filter(Item.id == item_id).first()
+                if item:
+                    item.status = self._status
+                    session.commit()
+
+            # Refresh the parent page
+            todos_page = self.find_todos_page()
+            if todos_page:
+                todos_page.refresh_current()
+
+            event.acceptProposedAction()
+
+    def find_todos_page(self):
+        """Find the TodosPage parent widget."""
+        widget = self.parent()
+        while widget:
+            if isinstance(widget, TodosPage):
+                return widget
+            widget = widget.parent()
+        return None
+
+    def set_cards(self, cards_data: list[tuple[str, int]]) -> None:
+        """Replace the column content with the provided cards (text, item_id tuples)."""
         while self._cards_layout.count() > 1:
             item = self._cards_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
 
-        if not card_texts:
-            self._add_card("No items yet.")
+        if not cards_data:
+            self._add_placeholder()
             return
 
-        for text in card_texts:
-            self._add_card(text)
+        for text, item_id in cards_data:
+            self._add_card(text, item_id)
 
-    def _add_card(self, text: str) -> None:
-        card = QLabel(text)
-        card.setWordWrap(True)
-        card.setStyleSheet(
+    def _add_card(self, text: str, item_id: int) -> None:
+        """Add a draggable card to the column."""
+        card = DraggableCard(text, item_id)
+        # Insert before the trailing stretch
+        self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+
+    def _add_placeholder(self) -> None:
+        """Add a placeholder label when column is empty."""
+        label = QLabel("No items yet.")
+        label.setWordWrap(True)
+        label.setStyleSheet(
             "background-color: #3c3c50; color: #e0e0e0; border-radius: 4px;"
             "padding: 8px; font-size: 12px;"
         )
-        # Insert before the trailing stretch
-        self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+        self._cards_layout.insertWidget(self._cards_layout.count() - 1, label)
 
 
 class TodosPage(QWidget):
@@ -137,7 +328,7 @@ class TodosPage(QWidget):
     def refresh_items(self, scenario_name: str = "All", search_text: str = "") -> None:
         """Load items from the database and populate columns."""
         filters = parse_search_text(search_text)
-        cards: dict[ItemStatus, list[str]] = {status: [] for status in ItemStatus}
+        cards: dict[ItemStatus, list[tuple[str, int]]] = {status: [] for status in ItemStatus}
         with SessionLocal() as session:
             query = session.query(Item)
             if scenario_name != "All":
@@ -156,11 +347,22 @@ class TodosPage(QWidget):
                 if item.tags:
                     tags = ", ".join(tag.name for tag in item.tags)
                     parts.append(f"Tags: {tags}")
-                cards[item.status].append("\n".join(parts))
+                cards[item.status].append(("\n".join(parts), item.id))
 
         for status, column in self._columns.items():
             column.set_cards(cards.get(status, []))
         self._update_tracker_visibility(bool(cards.get(ItemStatus.DOING)))
+
+    def refresh_current(self) -> None:
+        """Refresh with current scenario and search settings from parent window."""
+        # Find main window to get current scenario and search
+        main_window = self.window()
+        if hasattr(main_window, '_scenario_combo') and hasattr(main_window, '_search_bar'):
+            scenario = main_window._scenario_combo.currentText()
+            search = main_window._search_bar.text()
+            self.refresh_items(scenario, search)
+        else:
+            self.refresh_items()
 
     # ------------------------------------------------------------------
     # Time tracker
