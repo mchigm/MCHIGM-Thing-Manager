@@ -68,17 +68,19 @@ class DraggableTaskCard(QLabel):
         """Open item details (placeholder for now)."""
         # Import here to avoid circular import
         from src.ui.pages.todos import ItemDetailsDialog
+        # Use a short-lived session only to load the item, then close it before showing the dialog.
         with SessionLocal() as session:
             item = session.query(Item).filter(Item.id == self.item_id).first()
-            if not item:
-                return
-            dialog = ItemDetailsDialog(item, self)
-            if dialog.exec():
-                # Refresh the parent page
-                timetable_page = self.find_timetable_page()
-                if timetable_page:
-                    timetable_page.refresh_current()
 
+        if not item:
+            return
+
+        dialog = ItemDetailsDialog(item, self)
+        if dialog.exec():
+            # Refresh the parent page
+            timetable_page = self.find_timetable_page()
+            if timetable_page:
+                timetable_page.refresh_current()
     def find_timetable_page(self):
         """Find the TimetablePage parent widget."""
         widget = self.parent()

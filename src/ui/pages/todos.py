@@ -80,14 +80,17 @@ class DraggableCard(QLabel):
             item = session.query(Item).filter(Item.id == self.item_id).first()
             if not item:
                 return
+            # Detach the item from the session so the session can be closed
+            # before the dialog is shown, avoiding a long-lived DB session
+            session.expunge(item)
 
-            # Create dialog
-            dialog = ItemDetailsDialog(item, self)
-            if dialog.exec():
-                # Refresh the parent page if changes were made
-                todos_page = self.find_todos_page()
-                if todos_page:
-                    todos_page.refresh_current()
+        # Create and execute the dialog outside of the DB session context
+        dialog = ItemDetailsDialog(item, self)
+        if dialog.exec():
+            # Refresh the parent page if changes were made
+            todos_page = self.find_todos_page()
+            if todos_page:
+                todos_page.refresh_current()
 
     def find_todos_page(self):
         """Find the TodosPage parent widget."""

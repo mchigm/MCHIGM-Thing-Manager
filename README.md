@@ -11,7 +11,7 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 | # | Page | Description |
 |---|------|-------------|
 | 1 | **TODOs** | Kanban board (Backlog → To-Do → Doing → Done) with drag & drop cards + tracker pops up when items enter Doing |
-| 2 | **Timetable** | Day / Week / Month calendar with drag & drop scheduling, zoom controls, and unscheduled sidebar |
+| 2 | **Timetable** | Calendar with Day / Week / Month view buttons (view switching planned) plus drag & drop scheduling, zoom controls, and unscheduled sidebar |
 | 3 | **MEMO** | AI Copilot chat/scratchpad |
 | 4 | **Plan** | Gantt roadmap & Weekly Retrospective |
 
