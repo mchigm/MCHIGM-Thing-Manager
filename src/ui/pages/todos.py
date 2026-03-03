@@ -233,7 +233,12 @@ class KanbanColumn(QWidget):
         """Handle drop - update item status in database."""
         if event.mimeData().hasFormat("application/x-kanban-item"):
             item_id_bytes = event.mimeData().data("application/x-kanban-item")
-            item_id = int(item_id_bytes.data().decode())
+            try:
+                item_id_str = bytes(item_id_bytes).decode()
+                item_id = int(item_id_str)
+            except ValueError:
+                # Malformed drag payload; ignore the drop to avoid crashing
+                return
 
             # Update the item's status in the database
             with SessionLocal() as session:

@@ -113,7 +113,12 @@ class ScalableCalendar(QCalendarWidget):
         """Handle drop - schedule item on the selected date."""
         if event.mimeData().hasFormat("application/x-timetable-item"):
             item_id_bytes = event.mimeData().data("application/x-timetable-item")
-            item_id = int(item_id_bytes.data().decode())
+            try:
+                item_id_str = bytes(item_id_bytes).decode()
+                item_id = int(item_id_str)
+            except (ValueError, UnicodeDecodeError, TypeError):
+                # Malformed or unexpected drag payload; ignore the drop.
+                return
 
             # Get the selected date
             selected_date = self.selectedDate()
