@@ -69,6 +69,7 @@ class TestLoadSettings:
         assert result["calendar_connected"] is False
         assert result["calendar_auto_sync"] is True
         assert result["calendar_sync_interval"] == 15
+        assert result["emergency_levels"]
 
 
 # ---------------------------------------------------------------------------

@@ -19,11 +19,14 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QFormLayout,
     QDialogButtonBox,
+    QComboBox,
 )
 from sqlalchemy import or_
+from sqlalchemy.orm import Session
 
 from src.database.models import Item, ItemStatus, Scenario, SessionLocal, Tag
 from src.ui.search_filters import parse_search_text
+from src.settings_store import load_settings
 
 _COLUMN_COLORS = {
     ItemStatus.BACKLOG: "#4a4a5a",
@@ -31,18 +34,53 @@ _COLUMN_COLORS = {
     ItemStatus.DOING:   "#5a4a7a",
     ItemStatus.DONE:    "#3a6a4a",
 }
+_LEVEL_PREFIX = "!level:"
+
+
+def _load_emergency_levels() -> list[dict[str, str]]:
+    settings = load_settings()
+    levels = settings.get("emergency_levels") or []
+    fallback = [
+        {"name": "Low", "color": "#5c85d6"},
+        {"name": "Medium", "color": "#d6b55c"},
+        {"name": "High", "color": "#d65c5c"},
+    ]
+    cleaned = []
+    for level in levels:
+        name = (level or {}).get("name", "").strip()
+        color = (level or {}).get("color", "").strip() or "#d65c5c"
+        if name:
+            cleaned.append({"name": name, "color": color})
+    return cleaned or fallback
+
+
+def _level_from_tags(tags: list[Tag]) -> str | None:
+    for tag in tags:
+        if tag.name.startswith(_LEVEL_PREFIX):
+            return tag.name[len(_LEVEL_PREFIX):]
+    return None
+
+
+def _level_color(level_name: str | None, levels: list[dict[str, str]]) -> str | None:
+    if not level_name:
+        return None
+    for level in levels:
+        if level.get("name") == level_name:
+            return level.get("color")
+    return None
 
 
 class DraggableCard(QLabel):
     """A draggable Kanban card that stores its item ID and supports drag & drop."""
 
-    def __init__(self, text: str, item_id: int, parent: QWidget | None = None) -> None:
+    def __init__(self, text: str, item_id: int, accent_color: str | None = None, parent: QWidget | None = None) -> None:
         super().__init__(text, parent)
         self.item_id = item_id
         self.setWordWrap(True)
+        border = f"2px solid {accent_color}" if accent_color else "none"
         self.setStyleSheet(
-            "background-color: #3c3c50; color: #e0e0e0; border-radius: 4px;"
-            "padding: 8px; font-size: 12px;"
+            f"background-color: #3c3c50; color: #e0e0e0; border-radius: 4px;"
+            f"padding: 8px; font-size: 12px; border: {border};"
         )
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
@@ -111,6 +149,7 @@ class ItemDetailsDialog(QDialog):
         self.setWindowTitle(f"Item Details - {item.title}")
         self.setMinimumWidth(500)
         self.setMinimumHeight(400)
+        self._levels = _load_emergency_levels()
         self._setup_ui(item)
 
     def _setup_ui(self, item: Item):
@@ -133,6 +172,18 @@ class ItemDetailsDialog(QDialog):
         )
         self.description_edit.setMinimumHeight(150)
         form.addRow("Description:", self.description_edit)
+
+        # Emergency level
+        self.level_combo = QComboBox()
+        self.level_combo.addItem("None")
+        current_level = _level_from_tags(item.tags)
+        for level in self._levels:
+            self.level_combo.addItem(level["name"])
+        if current_level:
+            idx = self.level_combo.findText(current_level)
+            if idx >= 0:
+                self.level_combo.setCurrentIndex(idx)
+        form.addRow("Emergency:", self.level_combo)
 
         # Read-only info
         info_text = f"""
@@ -171,8 +222,27 @@ class ItemDetailsDialog(QDialog):
             if item:
                 item.title = self.title_edit.text().strip()[:255]
                 item.description = self.description_edit.toPlainText().strip()
+                self._save_emergency_level(session, item)
                 session.commit()
         self.accept()
+
+    def _save_emergency_level(self, session: Session, item: Item) -> None:
+        """Update the item's emergency level tag based on selection."""
+        if not self.level_combo:
+            return
+        selected = self.level_combo.currentText()
+        # Remove old level tags
+        for tag in list(item.tags):
+            if tag.name.startswith(_LEVEL_PREFIX):
+                item.tags.remove(tag)
+        if selected == "None":
+            return
+        tag_name = f"{_LEVEL_PREFIX}{selected}"
+        tag = session.query(Tag).filter(Tag.name == tag_name).first()
+        if not tag:
+            color = _level_color(selected, self._levels) or "#d65c5c"
+            tag = Tag(name=tag_name, color=color)
+        item.tags.append(tag)
 
 
 class KanbanColumn(QWidget):
@@ -263,8 +333,8 @@ class KanbanColumn(QWidget):
             widget = widget.parent()
         return None
 
-    def set_cards(self, cards_data: list[tuple[str, int]]) -> None:
-        """Replace the column content with the provided cards (text, item_id tuples)."""
+    def set_cards(self, cards_data: list[tuple[str, int, str | None]]) -> None:
+        """Replace the column content with the provided cards (text, item_id, accent_color tuples)."""
         while self._cards_layout.count() > 1:
             item = self._cards_layout.takeAt(0)
             widget = item.widget()
@@ -275,12 +345,12 @@ class KanbanColumn(QWidget):
             self._add_placeholder()
             return
 
-        for text, item_id in cards_data:
-            self._add_card(text, item_id)
+        for text, item_id, accent in cards_data:
+            self._add_card(text, item_id, accent)
 
-    def _add_card(self, text: str, item_id: int) -> None:
+    def _add_card(self, text: str, item_id: int, accent: str | None) -> None:
         """Add a draggable card to the column."""
-        card = DraggableCard(text, item_id)
+        card = DraggableCard(text, item_id, accent)
         # Insert before the trailing stretch
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
 
@@ -336,7 +406,8 @@ class TodosPage(QWidget):
     def refresh_items(self, scenario_name: str = "All", search_text: str = "") -> None:
         """Load items from the database and populate columns."""
         filters = parse_search_text(search_text)
-        cards: dict[ItemStatus, list[tuple[str, int]]] = {status: [] for status in ItemStatus}
+        levels = _load_emergency_levels()
+        cards: dict[ItemStatus, list[tuple[str, int, str | None]]] = {status: [] for status in ItemStatus}
         with SessionLocal() as session:
             query = session.query(Item)
             if scenario_name != "All":
@@ -352,10 +423,15 @@ class TodosPage(QWidget):
                 parts = [item.title, f"Type: {item.type.value}"]
                 if item.deadline:
                     parts.append(f"Deadline: {item.deadline.strftime('%b %d, %H:%M')}")
+                level = _level_from_tags(item.tags)
+                level_color = _level_color(level, levels)
+                if level:
+                    parts.append(f"Emergency: {level}")
                 if item.tags:
-                    tags = ", ".join(tag.name for tag in item.tags)
-                    parts.append(f"Tags: {tags}")
-                cards[item.status].append(("\n".join(parts), item.id))
+                    tags = ", ".join(tag.name for tag in item.tags if not tag.name.startswith(_LEVEL_PREFIX))
+                    if tags:
+                        parts.append(f"Tags: {tags}")
+                cards[item.status].append(("\n".join(parts), item.id, level_color))
 
         for status, column in self._columns.items():
             column.set_cards(cards.get(status, []))

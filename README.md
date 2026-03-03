@@ -34,6 +34,7 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 - **Omni-Search**: Search items by title, description, tags, or status
 - **Hotkeys**: Quick navigation (Ctrl+1-4 for pages, Ctrl+Space for quick capture)
 - **Item Details Dialog**: Consistent interface for viewing and editing any item, accessible from kanban cards and timetable tasks
+- **Emergency Levels**: Configure custom urgency levels in Settings; assign them to items to surface colored emphasis on Kanban cards
 
 
 ## Phased Development

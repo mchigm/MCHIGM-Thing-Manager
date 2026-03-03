@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +53,9 @@ class SettingsWindow(QDialog):
         self._calendar_status_label = None
         self._calendar_auto_sync_cb = None
         self._calendar_sync_interval_combo = None
+        self._status_badge = None
+        self._status_details = None
+        self._emergency_levels_edit = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -61,6 +65,8 @@ class SettingsWindow(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
+
+        root.addWidget(self._build_status_banner())
 
         tabs = QTabWidget()
         tabs.addTab(self._build_general_tab(), "General")
@@ -76,10 +82,83 @@ class SettingsWindow(QDialog):
         buttons.accepted.connect(self._save_and_close)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+        self._refresh_status_banner()
 
     # ------------------------------------------------------------------
     # General tab
     # ------------------------------------------------------------------
+    def _build_status_banner(self) -> QFrame:
+        banner = QFrame()
+        banner.setStyleSheet(
+            "QFrame {"
+            " background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+            " stop:0 #1e2a45, stop:1 #25365a);"
+            " border-radius: 8px; border: 1px solid #2f4164;"
+            "}"
+            "QLabel { color: #e4e6f4; }"
+        )
+        layout = QHBoxLayout(banner)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+
+        self._status_badge = QLabel("Live status")
+        self._status_badge.setStyleSheet(
+            "background-color: #5cd685; color: #0c1b2e; padding: 4px 10px;"
+            "border-radius: 10px; font-weight: bold;"
+        )
+        layout.addWidget(self._status_badge)
+
+        self._status_details = QLabel("")
+        self._status_details.setStyleSheet("font-size: 12px; color: #e0e3f6;")
+        layout.addWidget(self._status_details, stretch=1)
+
+        pulse = QLabel("●")
+        pulse.setStyleSheet("color: #7ec2ff; font-size: 13px;")
+        layout.addWidget(pulse)
+
+        return banner
+
+    def _refresh_status_banner(self) -> None:
+        """Update the dynamic status banner to reflect connections."""
+        if not (self._status_badge and self._status_details):
+            return
+        mcp_state = "Connected" if getattr(self._mcp_manager, "connected", False) else "Offline"
+        cal_state = self._calendar_manager.get_status_text() if self._calendar_manager else "Not connected"
+        auto_sync = (
+            "Auto-sync on"
+            if self._calendar_auto_sync_cb and self._calendar_auto_sync_cb.isChecked()
+            else "Manual sync"
+        )
+        badge_color = "#5cd685" if self._mcp_manager.connected or self._calendar_manager.connected else "#d6855c"
+        self._status_badge.setStyleSheet(
+            f"background-color: {badge_color}; color: #0c1b2e; padding: 4px 10px; border-radius: 10px; font-weight: bold;"
+        )
+        self._status_details.setText(f"MCP: {mcp_state}   •   Calendar: {cal_state}   •   {auto_sync}")
+
+    def _parse_emergency_levels(self) -> list[dict[str, str]]:
+        """Parse user-provided emergency levels from the text box."""
+        levels: list[dict[str, str]] = []
+        if not self._emergency_levels_edit:
+            return levels
+        for line in self._emergency_levels_edit.toPlainText().splitlines():
+            if not line.strip():
+                continue
+            if "," in line:
+                name, color = line.split(",", 1)
+            else:
+                name, color = line, ""
+            name = name.strip()
+            color = color.strip() or "#d65c5c"
+            if name:
+                levels.append({"name": name, "color": color})
+        if not levels:
+            levels = [
+                {"name": "Low", "color": "#5c85d6"},
+                {"name": "Medium", "color": "#d6b55c"},
+                {"name": "High", "color": "#d65c5c"},
+            ]
+        return levels
+
     def _build_general_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -105,6 +184,31 @@ class SettingsWindow(QDialog):
         workspace_form.addRow("Default Workspace:", self._default_scenario_combo)
 
         layout.addWidget(workspace_box)
+
+        # Emergency levels
+        emergency_box = QGroupBox("Emergency Levels")
+        emergency_layout = QVBoxLayout(emergency_box)
+        emergency_layout.setSpacing(6)
+
+        self._emergency_levels_edit = QTextEdit()
+        self._emergency_levels_edit.setPlaceholderText("One level per line, e.g.\nLow,#5c85d6\nHigh,#d65c5c")
+        levels = self._settings.get("emergency_levels", [])
+        lines = []
+        for level in levels:
+            name = level.get("name", "").strip()
+            color = level.get("color", "").strip()
+            if name:
+                lines.append(f"{name},{color}" if color else name)
+        self._emergency_levels_edit.setPlainText("\n".join(lines))
+        self._emergency_levels_edit.setFixedHeight(90)
+        emergency_layout.addWidget(self._emergency_levels_edit)
+
+        hint = QLabel("These levels appear in item details; leave blank for default Low/Medium/High.")
+        hint.setStyleSheet("color: #808090; font-size: 11px;")
+        hint.setWordWrap(True)
+        emergency_layout.addWidget(hint)
+
+        layout.addWidget(emergency_box)
 
         # Notifications
         notif_box = QGroupBox("Notifications")
@@ -429,6 +533,7 @@ class SettingsWindow(QDialog):
         calendar_provider = provider_map.get(provider_idx, "none")
 
         if self._model_edit is not None and self._api_key_edit is not None:
+            emergency_levels = self._parse_emergency_levels()
             save_settings(
                 {
                     "ai_model": self._model_edit.text().strip(),
@@ -444,6 +549,7 @@ class SettingsWindow(QDialog):
                     "outlook_tenant_id": (self._outlook_tenant_id_edit.text().strip() if self._outlook_tenant_id_edit else ""),
                     "calendar_auto_sync": (self._calendar_auto_sync_cb.isChecked() if self._calendar_auto_sync_cb else True),
                     "calendar_sync_interval": sync_interval,
+                    "emergency_levels": emergency_levels,
                 }
             )
         self.accept()
@@ -464,6 +570,7 @@ class SettingsWindow(QDialog):
         if self._mcp_status_label:
             status = "connected" if self._mcp_manager.connected else "disconnected"
             self._mcp_status_label.setText(f"{status} — {message}")
+        self._refresh_status_banner()
 
     # ------------------------------------------------------------------
     # Calendar sync helpers
@@ -559,3 +666,4 @@ class SettingsWindow(QDialog):
         if self._calendar_status_label:
             status = self._calendar_manager.get_status_text()
             self._calendar_status_label.setText(f"{status} — {message}")
+        self._refresh_status_banner()
