@@ -10,10 +10,31 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 ### Four Pages
 | # | Page | Description |
 |---|------|-------------|
-| 1 | **TODOs** | Kanban board (Backlog → To-Do → Doing → Done) + tracker pops up when items enter Doing |
-| 2 | **Timetable** | Day / Week / Month calendar with unscheduled sidebar |
+| 1 | **TODOs** | Kanban board (Backlog → To-Do → Doing → Done) with drag & drop cards + tracker pops up when items enter Doing |
+| 2 | **Timetable** | Day / Week / Month calendar with drag & drop scheduling, zoom controls, and unscheduled sidebar |
 | 3 | **MEMO** | AI Copilot chat/scratchpad |
 | 4 | **Plan** | Gantt roadmap & Weekly Retrospective |
+
+## Features
+
+### Interactive Kanban Board
+- **Drag & Drop Cards**: Drag kanban cards between columns (Backlog → To-Do → Doing → Done) to update their status automatically
+- **Click to View Details**: Click any card to open a detail dialog showing full item information
+- **Edit Items**: Update title and description directly from the details dialog
+- **Time Tracker**: Automatically appears when items are moved to the "Doing" column
+
+### Dynamic Timetable
+- **Drag to Schedule**: Drag unscheduled tasks from the sidebar onto any date in the calendar to schedule them
+- **Zoom Controls**: Use the zoom slider (50%-200%) to adjust calendar text size for better readability
+- **Click to View Details**: Click any task to view and edit its details
+- **Resizable Layout**: Adjust the splitter between calendar and sidebar to optimize your workspace
+
+### Global Features
+- **Scenario Filtering**: Filter items across all pages by workspace (School, Work, Personal, or All)
+- **Omni-Search**: Search items by title, description, tags, or status
+- **Hotkeys**: Quick navigation (Ctrl+1-4 for pages, Ctrl+Space for quick capture)
+- **Item Details Dialog**: Consistent interface for viewing and editing any item, accessible from kanban cards and timetable tasks
+
 
 ## Phased Development
 
@@ -23,7 +44,8 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 | 2 | Core views (Kanban, Calendar) & Omni-Search |
 | 3 | AI Brain — LLM integration & MEMO chat |
 | 4 | MCP client, Google Calendar / Outlook sync |
-| **5 （Current)** | Plan page (Gantt), Hotkeys, PDF export |
+| 5 | Plan page (Gantt), Hotkeys, PDF export |
+| **6 (Current)** | Interactive UI — Drag & drop for Kanban and Timetable, Item details dialog, Calendar zoom |
 
 ## Setup
 
