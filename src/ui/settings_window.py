@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -54,6 +55,7 @@ class SettingsWindow(QDialog):
         self._calendar_sync_interval_combo = None
         self._status_badge = None
         self._status_details = None
+        self._emergency_levels_edit = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -133,6 +135,30 @@ class SettingsWindow(QDialog):
         )
         self._status_details.setText(f"MCP: {mcp_state}   •   Calendar: {cal_state}   •   {auto_sync}")
 
+    def _parse_emergency_levels(self) -> list[dict[str, str]]:
+        """Parse user-provided emergency levels from the text box."""
+        levels: list[dict[str, str]] = []
+        if not self._emergency_levels_edit:
+            return levels
+        for line in self._emergency_levels_edit.toPlainText().splitlines():
+            if not line.strip():
+                continue
+            if "," in line:
+                name, color = line.split(",", 1)
+            else:
+                name, color = line, ""
+            name = name.strip()
+            color = color.strip() or "#d65c5c"
+            if name:
+                levels.append({"name": name, "color": color})
+        if not levels:
+            levels = [
+                {"name": "Low", "color": "#5c85d6"},
+                {"name": "Medium", "color": "#d6b55c"},
+                {"name": "High", "color": "#d65c5c"},
+            ]
+        return levels
+
     def _build_general_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -158,6 +184,31 @@ class SettingsWindow(QDialog):
         workspace_form.addRow("Default Workspace:", self._default_scenario_combo)
 
         layout.addWidget(workspace_box)
+
+        # Emergency levels
+        emergency_box = QGroupBox("Emergency Levels")
+        emergency_layout = QVBoxLayout(emergency_box)
+        emergency_layout.setSpacing(6)
+
+        self._emergency_levels_edit = QTextEdit()
+        self._emergency_levels_edit.setPlaceholderText("One level per line, e.g.\nLow,#5c85d6\nHigh,#d65c5c")
+        levels = self._settings.get("emergency_levels", [])
+        lines = []
+        for level in levels:
+            name = level.get("name", "").strip()
+            color = level.get("color", "").strip()
+            if name:
+                lines.append(f"{name},{color}" if color else name)
+        self._emergency_levels_edit.setPlainText("\n".join(lines))
+        self._emergency_levels_edit.setFixedHeight(90)
+        emergency_layout.addWidget(self._emergency_levels_edit)
+
+        hint = QLabel("These levels appear in item details; leave blank for default Low/Medium/High.")
+        hint.setStyleSheet("color: #808090; font-size: 11px;")
+        hint.setWordWrap(True)
+        emergency_layout.addWidget(hint)
+
+        layout.addWidget(emergency_box)
 
         # Notifications
         notif_box = QGroupBox("Notifications")
@@ -482,6 +533,7 @@ class SettingsWindow(QDialog):
         calendar_provider = provider_map.get(provider_idx, "none")
 
         if self._model_edit is not None and self._api_key_edit is not None:
+            emergency_levels = self._parse_emergency_levels()
             save_settings(
                 {
                     "ai_model": self._model_edit.text().strip(),
@@ -497,6 +549,7 @@ class SettingsWindow(QDialog):
                     "outlook_tenant_id": (self._outlook_tenant_id_edit.text().strip() if self._outlook_tenant_id_edit else ""),
                     "calendar_auto_sync": (self._calendar_auto_sync_cb.isChecked() if self._calendar_auto_sync_cb else True),
                     "calendar_sync_interval": sync_interval,
+                    "emergency_levels": emergency_levels,
                 }
             )
         self.accept()

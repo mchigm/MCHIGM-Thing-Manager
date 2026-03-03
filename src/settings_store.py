@@ -21,6 +21,12 @@ _DEFAULTS: Dict[str, Any] = {
     "outlook_tenant_id": "",
     "calendar_auto_sync": True,
     "calendar_sync_interval": 15,  # minutes
+    # Emergency levels (name/color pairs)
+    "emergency_levels": [
+        {"name": "Low", "color": "#5c85d6"},
+        {"name": "Medium", "color": "#d6b55c"},
+        {"name": "High", "color": "#d65c5c"},
+    ],
 }
 
 
