@@ -27,6 +27,23 @@ _DEFAULTS: Dict[str, Any] = {
         {"name": "Medium", "color": "#d6b55c"},
         {"name": "High", "color": "#d65c5c"},
     ],
+    # Time estimation settings
+    "buffer_time_per_hour": 45,  # minutes of buffer per hour of estimated time
+    # Performance settings
+    "memory_limit_mb": 512,  # Max memory usage in MB
+    "cpu_policy": "balanced",  # low, balanced, high
+    "gpu_acceleration": True,
+    # Hotkeys
+    "hotkeys": {
+        "quick_capture": "Ctrl+Space",
+        "new_item": "Ctrl+N",
+        "page_todos": "Ctrl+1",
+        "page_timetable": "Ctrl+2",
+        "page_memo": "Ctrl+3",
+        "page_plan": "Ctrl+4",
+        "search": "Ctrl+F",
+        "settings": "Ctrl+,",
+    },
 }
 
 

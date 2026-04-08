@@ -3,15 +3,18 @@ TODOs page — Kanban board (Backlog → To-Do → Doing → Done).
 
 Phase 1: Column structure with live items pulled from the database.
 """
+from datetime import datetime, timezone
 from PyQt6.QtCore import Qt, QTimer, QMimeData, QByteArray
 from PyQt6.QtGui import QDrag, QCursor
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
     QDialog,
@@ -24,7 +27,7 @@ from PyQt6.QtWidgets import (
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from src.database.models import Item, ItemStatus, Scenario, SessionLocal, Tag
+from src.database.models import Item, ItemStatus, ItemType, ItemTemplate, Scenario, SessionLocal, Tag
 from src.ui.search_filters import parse_search_text
 from src.settings_store import load_settings
 
@@ -73,16 +76,45 @@ def _level_color(level_name: str | None, levels: list[dict[str, str]]) -> str | 
 class DraggableCard(QLabel):
     """A draggable Kanban card that stores its item ID and supports drag & drop."""
 
-    def __init__(self, text: str, item_id: int, accent_color: str | None = None, parent: QWidget | None = None) -> None:
+    # Class-level set to track selected cards
+    _selected_items: set[int] = set()
+
+    def __init__(self, text: str, item_id: int, accent_color: str | None = None, deadline_status: str | None = None, scenario_color: str | None = None, parent: QWidget | None = None) -> None:
         super().__init__(text, parent)
         self.item_id = item_id
+        self._is_selected = False
+        self._accent_color = accent_color
+        self._deadline_status = deadline_status
+        self._scenario_color = scenario_color
         self.setWordWrap(True)
-        border = f"2px solid {accent_color}" if accent_color else "none"
-        self.setStyleSheet(
-            f"background-color: #3c3c50; color: #e0e0e0; border-radius: 4px;"
-            f"padding: 8px; font-size: 12px; border: {border};"
-        )
+        self._update_style()
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def _update_style(self):
+        """Update card style based on selection state."""
+        # Determine border based on deadline status
+        if self._is_selected:
+            border = "2px solid #5cd685"  # Green for selected
+            bg = "#4a4a60"
+        elif self._deadline_status == "overdue":
+            border = "2px solid #d65c5c"
+            bg = "#3c3c50"
+        elif self._deadline_status == "urgent":
+            border = "2px solid #d6a55c"
+            bg = "#3c3c50"
+        elif self._accent_color:
+            border = f"2px solid {self._accent_color}"
+            bg = "#3c3c50"
+        else:
+            border = "none"
+            bg = "#3c3c50"
+        
+        left_border = f"3px solid {self._scenario_color}" if self._scenario_color else "none"
+        
+        self.setStyleSheet(
+            f"background-color: {bg}; color: #e0e0e0; border-radius: 4px;"
+            f"padding: 8px; font-size: 12px; border: {border}; border-left: {left_border};"
+        )
 
     def mousePressEvent(self, event):
         """Handle mouse press - start drag or open details on click."""
@@ -105,30 +137,53 @@ class DraggableCard(QLabel):
         drag.exec(Qt.DropAction.MoveAction)
 
     def mouseReleaseEvent(self, event):
-        """Handle mouse release - open details if not dragging."""
+        """Handle mouse release - open details if not dragging, or toggle selection with Ctrl."""
         if event.button() == Qt.MouseButton.LeftButton:
             if (event.pos() - self.drag_start_position).manhattanLength() < 10:
-                # It was a click, not a drag - open details
-                self.show_details()
+                # Check for Ctrl modifier for multi-select
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    self._toggle_selection()
+                else:
+                    # Clear other selections and open details
+                    DraggableCard._selected_items.clear()
+                    self._clear_all_selections()
+                    self.show_details()
         super().mouseReleaseEvent(event)
+
+    def _toggle_selection(self):
+        """Toggle selection state of this card."""
+        self._is_selected = not self._is_selected
+        if self._is_selected:
+            DraggableCard._selected_items.add(self.item_id)
+        else:
+            DraggableCard._selected_items.discard(self.item_id)
+        self._update_style()
+        
+        # Show batch edit button if multiple selected
+        todos_page = self.find_todos_page()
+        if todos_page:
+            todos_page._update_batch_edit_button()
+
+    def _clear_all_selections(self):
+        """Clear selection style from all cards."""
+        todos_page = self.find_todos_page()
+        if todos_page:
+            todos_page._clear_all_card_selections()
 
     def show_details(self):
         """Open item details dialog."""
+        # Keep session open while dialog is shown to allow lazy loading of relationships
         with SessionLocal() as session:
             item = session.query(Item).filter(Item.id == self.item_id).first()
             if not item:
                 return
-            # Detach the item from the session so the session can be closed
-            # before the dialog is shown, avoiding a long-lived DB session
-            session.expunge(item)
 
-        # Create and execute the dialog outside of the DB session context
-        dialog = ItemDetailsDialog(item, self)
-        if dialog.exec():
-            # Refresh the parent page if changes were made
-            todos_page = self.find_todos_page()
-            if todos_page:
-                todos_page.refresh_current()
+            dialog = ItemDetailsDialog(item, self)
+            if dialog.exec():
+                # Refresh the parent page if changes were made
+                todos_page = self.find_todos_page()
+                if todos_page:
+                    todos_page.refresh_current()
 
     def find_todos_page(self):
         """Find the TodosPage parent widget."""
@@ -204,16 +259,112 @@ class ItemDetailsDialog(QDialog):
         info_label.setStyleSheet("color: #a0a0b0; font-size: 11px; padding: 8px;")
         info_label.setWordWrap(True)
         form.addRow("Info:", info_label)
+        
+        # Links section - extract URLs from description
+        links = self._extract_links(item.description or "")
+        if item.links:
+            links.extend([l.strip() for l in item.links.split('\n') if l.strip()])
+        if links:
+            links_label = QLabel()
+            links_label.setOpenExternalLinks(True)
+            links_html = "<br>".join([f'<a href="{url}" style="color: #5c85d6;">{url[:50]}{"..." if len(url) > 50 else ""}</a>' for url in links[:5]])
+            links_label.setText(links_html)
+            links_label.setStyleSheet("padding: 4px;")
+            form.addRow("Links:", links_label)
+        
+        # Links input field
+        self.links_edit = QLineEdit(item.links or "")
+        self.links_edit.setPlaceholderText("Add links (one per line or comma-separated)")
+        self.links_edit.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 4px;"
+        )
+        form.addRow("Add Links:", self.links_edit)
+        form.addRow("Info:", info_label)
 
         layout.addLayout(form)
 
         # Buttons
+        buttons_layout = QHBoxLayout()
+        
+        # Delete button on the left
+        delete_btn = QPushButton("Delete")
+        delete_btn.setStyleSheet(
+            "QPushButton { background-color: #8b3a3a; color: #ffffff; border-radius: 4px;"
+            " padding: 6px 12px; } QPushButton:hover { background-color: #a04a4a; }"
+        )
+        delete_btn.clicked.connect(self._delete_item)
+        buttons_layout.addWidget(delete_btn)
+        
+        # Duplicate button
+        duplicate_btn = QPushButton("Duplicate")
+        duplicate_btn.setStyleSheet(
+            "QPushButton { background-color: #3a5a7a; color: #ffffff; border-radius: 4px;"
+            " padding: 6px 12px; } QPushButton:hover { background-color: #4a6a8a; }"
+        )
+        duplicate_btn.clicked.connect(lambda: self._duplicate_item(item))
+        buttons_layout.addWidget(duplicate_btn)
+        
+        buttons_layout.addStretch()
+        
+        # Save/Cancel on the right
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         button_box.accepted.connect(self.save_changes)
         button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
+        buttons_layout.addWidget(button_box)
+        
+        layout.addLayout(buttons_layout)
+        
+        # Store item data for duplication
+        self._item_data = {
+            'title': item.title,
+            'description': item.description,
+            'type': item.type,
+            'status': item.status,
+            'scenario': item.scenario.name if item.scenario else None,
+            'tags': ', '.join(tag.name for tag in item.tags) if item.tags else '',
+            'estimated_time': item.estimated_time,
+            'workload': item.workload,
+        }
+
+    def _delete_item(self):
+        """Delete the item after confirmation."""
+        reply = QMessageBox.question(
+            self,
+            "Delete Item",
+            "Are you sure you want to delete this item? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            with SessionLocal() as session:
+                item = session.query(Item).filter(Item.id == self.item_id).first()
+                if item:
+                    session.delete(item)
+                    session.commit()
+            self.accept()
+
+    def _duplicate_item(self, item: Item):
+        """Open NewItemDialog with item data pre-filled for duplication."""
+        self.reject()  # Close this dialog
+        
+        template_data = {
+            'title': f"{self._item_data['title']} (Copy)",
+            'description': self._item_data['description'],
+            'type': self._item_data['type'],
+            'scenario': self._item_data['scenario'],
+            'tags': self._item_data['tags'],
+            'estimated_time': self._item_data['estimated_time'],
+            'workload': self._item_data['workload'],
+        }
+        
+        dialog = NewItemDialog(self._item_data['status'], self.parent(), template_data)
+        dialog.setWindowTitle("Duplicate Item")
+        if dialog.exec():
+            # Refresh will happen via parent
+            pass
 
     def save_changes(self):
         """Save changes to the database."""
@@ -222,9 +373,16 @@ class ItemDetailsDialog(QDialog):
             if item:
                 item.title = self.title_edit.text().strip()[:255]
                 item.description = self.description_edit.toPlainText().strip()
+                item.links = self.links_edit.text().strip()
                 self._save_emergency_level(session, item)
                 session.commit()
         self.accept()
+
+    def _extract_links(self, text: str) -> list[str]:
+        """Extract URLs from text."""
+        import re
+        url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+        return re.findall(url_pattern, text)
 
     def _save_emergency_level(self, session: Session, item: Item) -> None:
         """Update the item's emergency level tag based on selection."""
@@ -245,12 +403,338 @@ class ItemDetailsDialog(QDialog):
         item.tags.append(tag)
 
 
+class NewItemDialog(QDialog):
+    """Dialog for creating a new item directly in a Kanban column."""
+
+    def __init__(self, status: ItemStatus, parent: QWidget | None = None, template_data: dict | None = None):
+        super().__init__(parent)
+        self._status = status
+        self._template_data = template_data or {}
+        self.setWindowTitle(f"New Item - {status.value}")
+        self.setMinimumWidth(450)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Template selector at the top
+        template_row = QHBoxLayout()
+        template_label = QLabel("Template:")
+        template_label.setStyleSheet("color: #a0a0b0;")
+        template_row.addWidget(template_label)
+        
+        self.template_combo = QComboBox()
+        self.template_combo.addItem("None", None)
+        with SessionLocal() as session:
+            templates = session.query(ItemTemplate).order_by(ItemTemplate.name).all()
+            for t in templates:
+                self.template_combo.addItem(t.name, t.id)
+        self.template_combo.currentIndexChanged.connect(self._load_template)
+        self.template_combo.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 4px;"
+        )
+        template_row.addWidget(self.template_combo)
+        template_row.addStretch()
+        layout.addLayout(template_row)
+
+        form = QFormLayout()
+
+        self.title_edit = QLineEdit()
+        self.title_edit.setPlaceholderText("Enter item title...")
+        self.title_edit.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 6px;"
+        )
+        if self._template_data.get('title'):
+            self.title_edit.setText(self._template_data['title'])
+        form.addRow("Title:", self.title_edit)
+
+        self.description_edit = QTextEdit()
+        self.description_edit.setPlaceholderText("Optional description...")
+        self.description_edit.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 4px;"
+        )
+        self.description_edit.setMaximumHeight(80)
+        if self._template_data.get('description'):
+            self.description_edit.setPlainText(self._template_data['description'])
+        form.addRow("Description:", self.description_edit)
+
+        # Type selector
+        self.type_combo = QComboBox()
+        for item_type in ItemType:
+            emoji = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(item_type.value, "📋")
+            self.type_combo.addItem(f"{emoji} {item_type.value}", item_type)
+        self.type_combo.setCurrentIndex(0)
+        if self._template_data.get('type'):
+            for i in range(self.type_combo.count()):
+                if self.type_combo.itemData(i) == self._template_data['type']:
+                    self.type_combo.setCurrentIndex(i)
+                    break
+        form.addRow("Type:", self.type_combo)
+
+        # Scenario selector
+        self.scenario_combo = QComboBox()
+        self.scenario_combo.addItem("None")
+        with SessionLocal() as session:
+            scenarios = session.query(Scenario).order_by(Scenario.name).all()
+            for s in scenarios:
+                self.scenario_combo.addItem(s.name)
+        if self._template_data.get('scenario'):
+            idx = self.scenario_combo.findText(self._template_data['scenario'])
+            if idx >= 0:
+                self.scenario_combo.setCurrentIndex(idx)
+        form.addRow("Scenario:", self.scenario_combo)
+
+        # Estimated time (minutes)
+        time_row = QHBoxLayout()
+        self.estimated_time_edit = QSpinBox()
+        self.estimated_time_edit.setRange(0, 9999)
+        self.estimated_time_edit.setSuffix(" min")
+        self.estimated_time_edit.setSpecialValueText("Not set")
+        self.estimated_time_edit.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 4px;"
+        )
+        if self._template_data.get('estimated_time'):
+            self.estimated_time_edit.setValue(self._template_data['estimated_time'])
+        time_row.addWidget(self.estimated_time_edit)
+        
+        # Buffer time indicator
+        self.buffer_label = QLabel("(+0 min buffer)")
+        self.buffer_label.setStyleSheet("color: #808090; font-size: 11px;")
+        self.estimated_time_edit.valueChanged.connect(self._update_buffer_label)
+        time_row.addWidget(self.buffer_label)
+        time_row.addStretch()
+        form.addRow("Est. Time:", time_row)
+
+        # Workload (1-5 scale)
+        workload_row = QHBoxLayout()
+        self.workload_combo = QComboBox()
+        self.workload_combo.addItem("Not set", 0)
+        workload_labels = ["① Light", "② Moderate", "③ Medium", "④ Heavy", "⑤ Very Heavy"]
+        for i, label in enumerate(workload_labels, 1):
+            self.workload_combo.addItem(label, i)
+        if self._template_data.get('workload'):
+            self.workload_combo.setCurrentIndex(self._template_data['workload'])
+        workload_row.addWidget(self.workload_combo)
+        workload_row.addStretch()
+        form.addRow("Workload:", workload_row)
+
+        # Tags input
+        self.tags_edit = QLineEdit()
+        self.tags_edit.setPlaceholderText("Enter tags separated by comma (e.g., #urgent, #work)")
+        self.tags_edit.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 6px;"
+        )
+        if self._template_data.get('tags'):
+            self.tags_edit.setText(self._template_data['tags'])
+        form.addRow("Tags:", self.tags_edit)
+        
+        # Existing tags for quick selection
+        self.tags_buttons_layout = QHBoxLayout()
+        with SessionLocal() as session:
+            existing_tags = session.query(Tag).order_by(Tag.name).limit(8).all()
+            for tag in existing_tags:
+                btn = QPushButton(tag.name)
+                btn.setStyleSheet(
+                    f"background-color: {tag.color}; color: white; border-radius: 10px;"
+                    "padding: 2px 8px; font-size: 10px;"
+                )
+                btn.setFixedHeight(20)
+                btn.clicked.connect(lambda checked, t=tag.name: self._add_tag(t))
+                self.tags_buttons_layout.addWidget(btn)
+        self.tags_buttons_layout.addStretch()
+        form.addRow("", self.tags_buttons_layout)
+
+        layout.addLayout(form)
+
+        # Buttons
+        button_row = QHBoxLayout()
+        
+        save_template_btn = QPushButton("Save as Template")
+        save_template_btn.setStyleSheet(
+            "background-color: #3a5a7a; color: #e0e0e0; border-radius: 4px; padding: 6px 12px;"
+        )
+        save_template_btn.clicked.connect(self._save_as_template)
+        button_row.addWidget(save_template_btn)
+        
+        button_row.addStretch()
+        
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self._create_item)
+        button_box.rejected.connect(self.reject)
+        button_row.addWidget(button_box)
+        
+        layout.addLayout(button_row)
+        
+        self._update_buffer_label(self.estimated_time_edit.value())
+
+    def _add_tag(self, tag_name: str):
+        """Add a tag to the tags input."""
+        current = self.tags_edit.text().strip()
+        if current:
+            if tag_name not in current:
+                self.tags_edit.setText(f"{current}, {tag_name}")
+        else:
+            self.tags_edit.setText(tag_name)
+
+    def _load_template(self, index: int):
+        """Load a template into the form fields."""
+        template_id = self.template_combo.itemData(index)
+        if not template_id:
+            return
+        
+        with SessionLocal() as session:
+            template = session.query(ItemTemplate).filter(ItemTemplate.id == template_id).first()
+            if template:
+                if template.title_template:
+                    self.title_edit.setText(template.title_template)
+                if template.description_template:
+                    self.description_edit.setPlainText(template.description_template)
+                # Set type
+                for i in range(self.type_combo.count()):
+                    if self.type_combo.itemData(i) == template.type:
+                        self.type_combo.setCurrentIndex(i)
+                        break
+                # Set scenario
+                if template.scenario:
+                    idx = self.scenario_combo.findText(template.scenario.name)
+                    if idx >= 0:
+                        self.scenario_combo.setCurrentIndex(idx)
+                if template.estimated_time:
+                    self.estimated_time_edit.setValue(template.estimated_time)
+                if template.workload:
+                    self.workload_combo.setCurrentIndex(template.workload)
+                if template.tag_names:
+                    self.tags_edit.setText(template.tag_names)
+
+    def _save_as_template(self):
+        """Save current form values as a template."""
+        from PyQt6.QtWidgets import QInputDialog
+        
+        name, ok = QInputDialog.getText(
+            self, "Save Template", "Enter template name:",
+            QLineEdit.EchoMode.Normal, ""
+        )
+        if not ok or not name.strip():
+            return
+        
+        name = name.strip()
+        
+        with SessionLocal() as session:
+            # Check if template exists
+            existing = session.query(ItemTemplate).filter(ItemTemplate.name == name).first()
+            if existing:
+                reply = QMessageBox.question(
+                    self, "Template Exists",
+                    f"Template '{name}' already exists. Overwrite?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    return
+                template = existing
+            else:
+                template = ItemTemplate(name=name)
+                session.add(template)
+            
+            template.title_template = self.title_edit.text().strip()
+            template.description_template = self.description_edit.toPlainText().strip()
+            template.type = self.type_combo.currentData()
+            template.status = self._status
+            template.estimated_time = self.estimated_time_edit.value() if self.estimated_time_edit.value() > 0 else None
+            template.workload = self.workload_combo.currentData() if self.workload_combo.currentData() > 0 else None
+            
+            scenario_name = self.scenario_combo.currentText()
+            if scenario_name != "None":
+                scenario = session.query(Scenario).filter(Scenario.name == scenario_name).first()
+                template.scenario_id = scenario.id if scenario else None
+            else:
+                template.scenario_id = None
+            
+            template.tag_names = self.tags_edit.text().strip()
+            
+            session.commit()
+            
+            # Add to combo if new
+            if not existing:
+                self.template_combo.addItem(name, template.id)
+            
+            QMessageBox.information(self, "Saved", f"Template '{name}' saved!")
+
+    def _update_buffer_label(self, minutes: int):
+        """Update the buffer time label."""
+        from src.settings_store import load_settings
+        settings = load_settings()
+        buffer_per_hour = settings.get("buffer_time_per_hour", 45)
+        if minutes > 0:
+            hours = minutes / 60
+            buffer = int(hours * buffer_per_hour)
+            self.buffer_label.setText(f"(+{buffer} min buffer)")
+        else:
+            self.buffer_label.setText("(+0 min buffer)")
+
+    def _create_item(self):
+        """Create the new item in the database."""
+        title = self.title_edit.text().strip()
+        if not title:
+            QMessageBox.warning(self, "Required", "Please enter a title.")
+            return
+
+        with SessionLocal() as session:
+            scenario = None
+            scenario_name = self.scenario_combo.currentText()
+            if scenario_name != "None":
+                scenario = session.query(Scenario).filter(Scenario.name == scenario_name).first()
+
+            item_type = self.type_combo.currentData()
+            
+            estimated_time = self.estimated_time_edit.value() if self.estimated_time_edit.value() > 0 else None
+            workload = self.workload_combo.currentData() if self.workload_combo.currentData() > 0 else None
+
+            item = Item(
+                title=title[:255],
+                description=self.description_edit.toPlainText().strip(),
+                type=item_type,
+                status=self._status,
+                scenario=scenario,
+                estimated_time=estimated_time,
+                workload=workload,
+            )
+            session.add(item)
+            session.flush()  # Get the item ID
+            
+            # Handle tags
+            tags_text = self.tags_edit.text().strip()
+            if tags_text:
+                tag_names = [t.strip() for t in tags_text.split(',') if t.strip()]
+                for tag_name in tag_names:
+                    # Ensure tag starts with #
+                    if not tag_name.startswith('#'):
+                        tag_name = f'#{tag_name}'
+                    # Find or create tag
+                    tag = session.query(Tag).filter(Tag.name == tag_name).first()
+                    if not tag:
+                        tag = Tag(name=tag_name)
+                        session.add(tag)
+                    item.tags.append(tag)
+            
+            session.commit()
+
+        self.accept()
+
+
 class KanbanColumn(QWidget):
     """A single Kanban column with a header and a scrollable card area."""
 
     def __init__(self, status: ItemStatus, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._status = status
+        self._count_label: QLabel | None = None
         self.setAcceptDrops(True)
         self._setup_ui()
 
@@ -262,15 +746,44 @@ class KanbanColumn(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Header
-        header = QLabel(self._status.value)
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setFixedHeight(40)
+        # Header with title, count badge, and add button
+        header = QWidget()
         color = _COLUMN_COLORS.get(self._status, "#4a4a4a")
         header.setStyleSheet(
-            f"background-color: {color}; color: #ffffff; font-weight: bold; font-size: 13px;"
-            " border-top-left-radius: 6px; border-top-right-radius: 6px; padding: 4px;"
+            f"background-color: {color}; border-top-left-radius: 6px; border-top-right-radius: 6px;"
         )
+        header.setFixedHeight(44)
+        
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(6)
+        
+        title_label = QLabel(self._status.value)
+        title_label.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px; background: transparent;")
+        header_layout.addWidget(title_label)
+        
+        # Count badge
+        self._count_label = QLabel("0")
+        self._count_label.setStyleSheet(
+            "background-color: rgba(255,255,255,0.2); color: #ffffff; font-size: 11px;"
+            "padding: 2px 6px; border-radius: 8px;"
+        )
+        header_layout.addWidget(self._count_label)
+        
+        header_layout.addStretch()
+        
+        # Add button
+        add_btn = QPushButton("+")
+        add_btn.setFixedSize(24, 24)
+        add_btn.setStyleSheet(
+            "QPushButton { background-color: rgba(255,255,255,0.2); color: #ffffff; border-radius: 12px;"
+            " font-size: 16px; font-weight: bold; border: none; }"
+            "QPushButton:hover { background-color: rgba(255,255,255,0.3); }"
+        )
+        add_btn.setToolTip(f"Add new item to {self._status.value}")
+        add_btn.clicked.connect(self._add_new_item)
+        header_layout.addWidget(add_btn)
+        
         root.addWidget(header)
 
         # Scroll area for cards
@@ -333,24 +846,39 @@ class KanbanColumn(QWidget):
             widget = widget.parent()
         return None
 
-    def set_cards(self, cards_data: list[tuple[str, int, str | None]]) -> None:
-        """Replace the column content with the provided cards (text, item_id, accent_color tuples)."""
+    def _add_new_item(self):
+        """Open a dialog to create a new item in this column."""
+        dialog = NewItemDialog(self._status, self)
+        if dialog.exec():
+            todos_page = self.find_todos_page()
+            if todos_page:
+                todos_page.refresh_current()
+
+    def set_cards(self, cards_data: list[tuple[str, int, str | None, str | None, str | None]]) -> None:
+        """Replace the column content with the provided cards.
+        
+        cards_data: list of (text, item_id, accent_color, deadline_status, scenario_color) tuples.
+        """
         while self._cards_layout.count() > 1:
             item = self._cards_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
 
+        # Update count badge
+        if self._count_label:
+            self._count_label.setText(str(len(cards_data)))
+
         if not cards_data:
             self._add_placeholder()
             return
 
-        for text, item_id, accent in cards_data:
-            self._add_card(text, item_id, accent)
+        for text, item_id, accent, deadline_status, scenario_color in cards_data:
+            self._add_card(text, item_id, accent, deadline_status, scenario_color)
 
-    def _add_card(self, text: str, item_id: int, accent: str | None) -> None:
+    def _add_card(self, text: str, item_id: int, accent: str | None, deadline_status: str | None = None, scenario_color: str | None = None) -> None:
         """Add a draggable card to the column."""
-        card = DraggableCard(text, item_id, accent)
+        card = DraggableCard(text, item_id, accent, deadline_status, scenario_color)
         # Insert before the trailing stretch
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
 
@@ -386,9 +914,35 @@ class TodosPage(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
 
+        # Title row with batch edit button
+        title_row = QHBoxLayout()
         title = QLabel("TODOs — Action Hub")
         title.setStyleSheet("color: #c8c8d8; font-size: 18px; font-weight: bold;")
-        root.addWidget(title)
+        title_row.addWidget(title)
+        
+        title_row.addStretch()
+        
+        # Batch edit button (hidden by default)
+        self._batch_edit_btn = QPushButton("Edit Selected (0)")
+        self._batch_edit_btn.setStyleSheet(
+            "QPushButton { background-color: #5c85d6; color: #ffffff; border-radius: 4px;"
+            " padding: 6px 12px; } QPushButton:hover { background-color: #6a95e6; }"
+        )
+        self._batch_edit_btn.clicked.connect(self._open_batch_edit)
+        self._batch_edit_btn.hide()
+        title_row.addWidget(self._batch_edit_btn)
+        
+        # Clear selection button
+        self._clear_selection_btn = QPushButton("Clear Selection")
+        self._clear_selection_btn.setStyleSheet(
+            "QPushButton { background-color: #4a4a5a; color: #c0c0d0; border-radius: 4px;"
+            " padding: 6px 12px; } QPushButton:hover { background-color: #5a5a6a; }"
+        )
+        self._clear_selection_btn.clicked.connect(self._clear_all_card_selections)
+        self._clear_selection_btn.hide()
+        title_row.addWidget(self._clear_selection_btn)
+        
+        root.addLayout(title_row)
 
         tracker = self._build_tracker()
         root.addWidget(tracker)
@@ -407,7 +961,8 @@ class TodosPage(QWidget):
         """Load items from the database and populate columns."""
         filters = parse_search_text(search_text)
         levels = _load_emergency_levels()
-        cards: dict[ItemStatus, list[tuple[str, int, str | None]]] = {status: [] for status in ItemStatus}
+        now = datetime.now(timezone.utc)
+        cards: dict[ItemStatus, list[tuple[str, int, str | None, str | None, str | None]]] = {status: [] for status in ItemStatus}
         with SessionLocal() as session:
             query = session.query(Item)
             if scenario_name != "All":
@@ -421,8 +976,19 @@ class TodosPage(QWidget):
                 query = query.filter(or_(Item.title.ilike(like), Item.description.ilike(like)))
             for item in query.order_by(Item.created_at).distinct().all():
                 parts = [item.title, f"Type: {item.type.value}"]
+                
+                # Determine deadline status
+                deadline_status = None
                 if item.deadline:
+                    deadline_tz = item.deadline if item.deadline.tzinfo else item.deadline.replace(tzinfo=timezone.utc)
                     parts.append(f"Deadline: {item.deadline.strftime('%b %d, %H:%M')}")
+                    if deadline_tz < now:
+                        deadline_status = "overdue"
+                        parts.append("⚠️ OVERDUE")
+                    elif (deadline_tz - now).total_seconds() < 86400:  # < 24 hours
+                        deadline_status = "urgent"
+                        parts.append("⏰ Due soon")
+                
                 level = _level_from_tags(item.tags)
                 level_color = _level_color(level, levels)
                 if level:
@@ -431,7 +997,11 @@ class TodosPage(QWidget):
                     tags = ", ".join(tag.name for tag in item.tags if not tag.name.startswith(_LEVEL_PREFIX))
                     if tags:
                         parts.append(f"Tags: {tags}")
-                cards[item.status].append(("\n".join(parts), item.id, level_color))
+                
+                # Get scenario color
+                scenario_color = item.scenario.color if item.scenario else None
+                
+                cards[item.status].append(("\n".join(parts), item.id, level_color, deadline_status, scenario_color))
 
         for status, column in self._columns.items():
             column.set_cards(cards.get(status, []))
@@ -532,3 +1102,189 @@ class TodosPage(QWidget):
         else:
             self._reset_tracker()
             self._tracker_frame.hide()
+
+    # ------------------------------------------------------------------
+    # Multi-select & Batch Edit
+    # ------------------------------------------------------------------
+    def _update_batch_edit_button(self) -> None:
+        """Update the batch edit button visibility and count."""
+        count = len(DraggableCard._selected_items)
+        if count > 0:
+            self._batch_edit_btn.setText(f"Edit Selected ({count})")
+            self._batch_edit_btn.show()
+            self._clear_selection_btn.show()
+        else:
+            self._batch_edit_btn.hide()
+            self._clear_selection_btn.hide()
+
+    def _clear_all_card_selections(self) -> None:
+        """Clear selection from all cards."""
+        DraggableCard._selected_items.clear()
+        # Update all card styles
+        for status, column in self._columns.items():
+            scroll_area = column.findChild(QScrollArea)
+            if scroll_area:
+                container = scroll_area.widget()
+                if container:
+                    for i in range(container.layout().count()):
+                        item = container.layout().itemAt(i)
+                        if item and item.widget():
+                            card = item.widget()
+                            if isinstance(card, DraggableCard):
+                                card._is_selected = False
+                                card._update_style()
+        self._update_batch_edit_button()
+
+    def _open_batch_edit(self) -> None:
+        """Open batch edit dialog for selected items."""
+        selected_ids = list(DraggableCard._selected_items)
+        if not selected_ids:
+            return
+        
+        dialog = BatchEditDialog(selected_ids, self)
+        if dialog.exec():
+            self._clear_all_card_selections()
+            self.refresh_current()
+
+
+class BatchEditDialog(QDialog):
+    """Dialog for batch editing multiple items."""
+
+    def __init__(self, item_ids: list[int], parent: QWidget | None = None):
+        super().__init__(parent)
+        self._item_ids = item_ids
+        self.setWindowTitle(f"Batch Edit - {len(item_ids)} items")
+        self.setMinimumWidth(400)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        info = QLabel(f"Editing {len(self._item_ids)} selected items.\nOnly checked fields will be updated.")
+        info.setStyleSheet("color: #a0a0b0; font-size: 11px; padding: 8px;")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        form = QFormLayout()
+
+        # Status change
+        self.status_check = QPushButton("☐ Status")
+        self.status_check.setCheckable(True)
+        self.status_check.setStyleSheet("text-align: left; padding: 4px;")
+        self.status_combo = QComboBox()
+        for status in ItemStatus:
+            self.status_combo.addItem(status.value, status)
+        self.status_combo.setEnabled(False)
+        self.status_check.toggled.connect(self.status_combo.setEnabled)
+        self.status_check.toggled.connect(lambda c: self.status_check.setText("☑ Status" if c else "☐ Status"))
+        row = QHBoxLayout()
+        row.addWidget(self.status_check)
+        row.addWidget(self.status_combo)
+        form.addRow(row)
+
+        # Emergency level
+        self.level_check = QPushButton("☐ Emergency")
+        self.level_check.setCheckable(True)
+        self.level_check.setStyleSheet("text-align: left; padding: 4px;")
+        self.level_combo = QComboBox()
+        self.level_combo.addItem("None")
+        for level in _load_emergency_levels():
+            self.level_combo.addItem(level["name"])
+        self.level_combo.setEnabled(False)
+        self.level_check.toggled.connect(self.level_combo.setEnabled)
+        self.level_check.toggled.connect(lambda c: self.level_check.setText("☑ Emergency" if c else "☐ Emergency"))
+        row = QHBoxLayout()
+        row.addWidget(self.level_check)
+        row.addWidget(self.level_combo)
+        form.addRow(row)
+
+        # Workload
+        self.workload_check = QPushButton("☐ Workload")
+        self.workload_check.setCheckable(True)
+        self.workload_check.setStyleSheet("text-align: left; padding: 4px;")
+        self.workload_combo = QComboBox()
+        self.workload_combo.addItem("Not set", 0)
+        workload_labels = ["① Light", "② Moderate", "③ Medium", "④ Heavy", "⑤ Very Heavy"]
+        for i, label in enumerate(workload_labels, 1):
+            self.workload_combo.addItem(label, i)
+        self.workload_combo.setEnabled(False)
+        self.workload_check.toggled.connect(self.workload_combo.setEnabled)
+        self.workload_check.toggled.connect(lambda c: self.workload_check.setText("☑ Workload" if c else "☐ Workload"))
+        row = QHBoxLayout()
+        row.addWidget(self.workload_check)
+        row.addWidget(self.workload_combo)
+        form.addRow(row)
+
+        # Add tags
+        self.add_tags_check = QPushButton("☐ Add Tags")
+        self.add_tags_check.setCheckable(True)
+        self.add_tags_check.setStyleSheet("text-align: left; padding: 4px;")
+        self.add_tags_edit = QLineEdit()
+        self.add_tags_edit.setPlaceholderText("Tags to add (comma separated)")
+        self.add_tags_edit.setEnabled(False)
+        self.add_tags_check.toggled.connect(self.add_tags_edit.setEnabled)
+        self.add_tags_check.toggled.connect(lambda c: self.add_tags_check.setText("☑ Add Tags" if c else "☐ Add Tags"))
+        row = QHBoxLayout()
+        row.addWidget(self.add_tags_check)
+        row.addWidget(self.add_tags_edit)
+        form.addRow(row)
+
+        layout.addLayout(form)
+
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._apply_changes)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _apply_changes(self):
+        """Apply batch changes to all selected items."""
+        with SessionLocal() as session:
+            items = session.query(Item).filter(Item.id.in_(self._item_ids)).all()
+            
+            for item in items:
+                # Update status
+                if self.status_check.isChecked():
+                    item.status = self.status_combo.currentData()
+                
+                # Update workload
+                if self.workload_check.isChecked():
+                    workload = self.workload_combo.currentData()
+                    item.workload = workload if workload > 0 else None
+                
+                # Update emergency level
+                if self.level_check.isChecked():
+                    selected = self.level_combo.currentText()
+                    # Remove old level tags
+                    for tag in list(item.tags):
+                        if tag.name.startswith(_LEVEL_PREFIX):
+                            item.tags.remove(tag)
+                    if selected != "None":
+                        tag_name = f"{_LEVEL_PREFIX}{selected}"
+                        tag = session.query(Tag).filter(Tag.name == tag_name).first()
+                        if not tag:
+                            levels = _load_emergency_levels()
+                            color = _level_color(selected, levels) or "#d65c5c"
+                            tag = Tag(name=tag_name, color=color)
+                        item.tags.append(tag)
+                
+                # Add tags
+                if self.add_tags_check.isChecked():
+                    tags_text = self.add_tags_edit.text().strip()
+                    if tags_text:
+                        tag_names = [t.strip() for t in tags_text.split(',') if t.strip()]
+                        for tag_name in tag_names:
+                            if not tag_name.startswith('#'):
+                                tag_name = f'#{tag_name}'
+                            tag = session.query(Tag).filter(Tag.name == tag_name).first()
+                            if not tag:
+                                tag = Tag(name=tag_name)
+                                session.add(tag)
+                            if tag not in item.tags:
+                                item.tags.append(tag)
+            
+            session.commit()
+        
+        self.accept()

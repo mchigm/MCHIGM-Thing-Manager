@@ -7,6 +7,8 @@ Phase 1: General (theme, default scenario, notifications) and
 import shutil
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
+
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -75,6 +77,8 @@ class SettingsWindow(QDialog):
         tabs.addTab(self._build_ai_tab(), "AI Agent")
         tabs.addTab(self._build_mcp_tab(), "MCP Client")
         tabs.addTab(self._build_calendar_tab(), "Calendar Sync")
+        tabs.addTab(self._build_hotkeys_tab(), "Hotkeys")
+        tabs.addTab(self._build_performance_tab(), "Performance")
         root.addWidget(tabs, stretch=1)
 
         buttons = QDialogButtonBox(
@@ -219,6 +223,67 @@ class SettingsWindow(QDialog):
         notif_layout.addWidget(self._notif_deadline_cb)
 
         layout.addWidget(notif_box)
+        
+        # Color Picker Tool
+        color_box = QGroupBox("Color Picker")
+        color_layout = QVBoxLayout(color_box)
+        color_layout.setSpacing(8)
+        
+        # Color preview and picker button
+        preview_row = QHBoxLayout()
+        
+        self._color_preview = QLabel()
+        self._color_preview.setFixedSize(60, 30)
+        self._color_preview.setStyleSheet("background-color: #5c85d6; border: 1px solid #3a3a4e; border-radius: 4px;")
+        preview_row.addWidget(self._color_preview)
+        
+        pick_color_btn = QPushButton("Pick Color")
+        pick_color_btn.clicked.connect(self._open_color_picker)
+        preview_row.addWidget(pick_color_btn)
+        
+        preview_row.addStretch()
+        color_layout.addLayout(preview_row)
+        
+        # Hex input
+        hex_row = QHBoxLayout()
+        hex_label = QLabel("Hex:")
+        hex_label.setStyleSheet("color: #a0a0b0;")
+        hex_row.addWidget(hex_label)
+        
+        self._hex_edit = QLineEdit("#5c85d6")
+        self._hex_edit.setMaximumWidth(100)
+        self._hex_edit.textChanged.connect(self._update_color_from_hex)
+        hex_row.addWidget(self._hex_edit)
+        
+        copy_hex_btn = QPushButton("Copy")
+        copy_hex_btn.setFixedWidth(50)
+        copy_hex_btn.clicked.connect(lambda: self._copy_to_clipboard(self._hex_edit.text()))
+        hex_row.addWidget(copy_hex_btn)
+        
+        hex_row.addStretch()
+        color_layout.addLayout(hex_row)
+        
+        # RGBA input
+        rgba_row = QHBoxLayout()
+        rgba_label = QLabel("RGBA:")
+        rgba_label.setStyleSheet("color: #a0a0b0;")
+        rgba_row.addWidget(rgba_label)
+        
+        self._rgba_edit = QLineEdit("rgba(92, 133, 214, 1.0)")
+        self._rgba_edit.setMaximumWidth(180)
+        self._rgba_edit.textChanged.connect(self._update_color_from_rgba)
+        rgba_row.addWidget(self._rgba_edit)
+        
+        copy_rgba_btn = QPushButton("Copy")
+        copy_rgba_btn.setFixedWidth(50)
+        copy_rgba_btn.clicked.connect(lambda: self._copy_to_clipboard(self._rgba_edit.text()))
+        rgba_row.addWidget(copy_rgba_btn)
+        
+        rgba_row.addStretch()
+        color_layout.addLayout(rgba_row)
+        
+        layout.addWidget(color_box)
+        
         layout.addStretch()
         return tab
 
@@ -483,6 +548,67 @@ class SettingsWindow(QDialog):
         return tab
 
     # ------------------------------------------------------------------
+    # Color Picker Helpers
+    # ------------------------------------------------------------------
+    def _open_color_picker(self) -> None:
+        """Open a color dialog and update preview."""
+        from PyQt6.QtWidgets import QColorDialog
+        from PyQt6.QtGui import QColor
+        
+        current_color = QColor(self._hex_edit.text())
+        color = QColorDialog.getColor(current_color, self, "Select Color")
+        if color.isValid():
+            hex_color = color.name()
+            rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha() / 255:.2f})"
+            
+            self._hex_edit.blockSignals(True)
+            self._rgba_edit.blockSignals(True)
+            
+            self._hex_edit.setText(hex_color)
+            self._rgba_edit.setText(rgba)
+            self._color_preview.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #3a3a4e; border-radius: 4px;")
+            
+            self._hex_edit.blockSignals(False)
+            self._rgba_edit.blockSignals(False)
+
+    def _update_color_from_hex(self, hex_color: str) -> None:
+        """Update preview and RGBA from hex input."""
+        from PyQt6.QtGui import QColor
+        
+        if not hex_color.startswith('#'):
+            hex_color = f'#{hex_color}'
+        
+        color = QColor(hex_color)
+        if color.isValid():
+            rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, 1.0)"
+            self._rgba_edit.blockSignals(True)
+            self._rgba_edit.setText(rgba)
+            self._rgba_edit.blockSignals(False)
+            self._color_preview.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #3a3a4e; border-radius: 4px;")
+
+    def _update_color_from_rgba(self, rgba_str: str) -> None:
+        """Update preview and hex from RGBA input."""
+        from PyQt6.QtGui import QColor
+        import re
+        
+        match = re.match(r'rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)', rgba_str)
+        if match:
+            r, g, b = int(match.group(1)), int(match.group(2)), int(match.group(3))
+            color = QColor(r, g, b)
+            if color.isValid():
+                hex_color = color.name()
+                self._hex_edit.blockSignals(True)
+                self._hex_edit.setText(hex_color)
+                self._hex_edit.blockSignals(False)
+                self._color_preview.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #3a3a4e; border-radius: 4px;")
+
+    def _copy_to_clipboard(self, text: str) -> None:
+        """Copy text to clipboard."""
+        from PyQt6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
     @staticmethod
@@ -533,6 +659,19 @@ class SettingsWindow(QDialog):
         provider_map = {0: "none", 1: "google", 2: "outlook"}
         calendar_provider = provider_map.get(provider_idx, "none")
 
+        # Get CPU policy
+        cpu_idx = self._cpu_policy_combo.currentIndex() if hasattr(self, '_cpu_policy_combo') else 1
+        cpu_map = {0: "low", 1: "balanced", 2: "high"}
+        cpu_policy = cpu_map.get(cpu_idx, "balanced")
+
+        # Get hotkeys from table
+        hotkeys = {}
+        if hasattr(self, '_hotkeys_table'):
+            for row in range(self._hotkeys_table.rowCount()):
+                key = self._hotkeys_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+                shortcut = self._hotkeys_table.item(row, 1).text()
+                hotkeys[key] = shortcut
+
         if self._model_edit is not None and self._api_key_edit is not None:
             emergency_levels = self._parse_emergency_levels()
             save_settings(
@@ -551,6 +690,13 @@ class SettingsWindow(QDialog):
                     "calendar_auto_sync": (self._calendar_auto_sync_cb.isChecked() if self._calendar_auto_sync_cb else True),
                     "calendar_sync_interval": sync_interval,
                     "emergency_levels": emergency_levels,
+                    # Performance settings
+                    "memory_limit_mb": (self._memory_limit_spin.value() if hasattr(self, '_memory_limit_spin') else 512),
+                    "cpu_policy": cpu_policy,
+                    "gpu_acceleration": (self._gpu_enabled_cb.isChecked() if hasattr(self, '_gpu_enabled_cb') else True),
+                    "buffer_time_per_hour": (self._buffer_time_spin.value() if hasattr(self, '_buffer_time_spin') else 45),
+                    # Hotkeys
+                    "hotkeys": hotkeys,
                 }
             )
         self.accept()
@@ -668,3 +814,182 @@ class SettingsWindow(QDialog):
             status = self._calendar_manager.get_status_text()
             self._calendar_status_label.setText(f"{status} — {message}")
         self._refresh_status_banner()
+
+    # ------------------------------------------------------------------
+    # Hotkeys tab
+    # ------------------------------------------------------------------
+    def _build_hotkeys_tab(self) -> QWidget:
+        """Build the hotkeys configuration tab."""
+        from PyQt6.QtWidgets import QSpinBox, QTableWidget, QTableWidgetItem, QHeaderView
+        
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(12)
+        
+        # Info label
+        info = QLabel("Configure keyboard shortcuts. Click on a shortcut to edit it.")
+        info.setStyleSheet("color: #808090; font-size: 11px;")
+        layout.addWidget(info)
+        
+        # Hotkeys table
+        self._hotkeys_table = QTableWidget()
+        self._hotkeys_table.setColumnCount(2)
+        self._hotkeys_table.setHorizontalHeaderLabels(["Action", "Shortcut"])
+        self._hotkeys_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._hotkeys_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self._hotkeys_table.setColumnWidth(1, 150)
+        self._hotkeys_table.setStyleSheet(
+            "QTableWidget { background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e; }"
+            "QTableWidget::item { padding: 8px; }"
+            "QHeaderView::section { background-color: #1a1a2a; color: #c8c8d8; padding: 8px; }"
+        )
+        
+        # Populate with current hotkeys
+        hotkeys = self._settings.get("hotkeys", {})
+        hotkey_names = {
+            "quick_capture": "Quick Capture",
+            "new_item": "New Item",
+            "page_todos": "Go to TODOs",
+            "page_timetable": "Go to Timetable",
+            "page_memo": "Go to MEMO",
+            "page_plan": "Go to Plan",
+            "search": "Focus Search",
+            "settings": "Open Settings",
+        }
+        
+        self._hotkeys_table.setRowCount(len(hotkey_names))
+        self._hotkey_edits = {}
+        
+        for row, (key, name) in enumerate(hotkey_names.items()):
+            # Action name
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._hotkeys_table.setItem(row, 0, name_item)
+            
+            # Shortcut (editable)
+            shortcut = hotkeys.get(key, "")
+            shortcut_item = QTableWidgetItem(shortcut)
+            shortcut_item.setData(Qt.ItemDataRole.UserRole, key)
+            self._hotkeys_table.setItem(row, 1, shortcut_item)
+        
+        layout.addWidget(self._hotkeys_table)
+        
+        # Reset to defaults button
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setStyleSheet(
+            "QPushButton { background-color: #3a3a4e; color: #c8c8d8; border-radius: 4px;"
+            " padding: 8px 16px; font-size: 12px; }"
+            "QPushButton:hover { background-color: #4a4a5e; }"
+        )
+        reset_btn.clicked.connect(self._reset_hotkeys)
+        layout.addWidget(reset_btn)
+        
+        return tab
+    
+    def _reset_hotkeys(self) -> None:
+        """Reset hotkeys to default values."""
+        from src.settings_store import _DEFAULTS
+        default_hotkeys = _DEFAULTS.get("hotkeys", {})
+        
+        for row in range(self._hotkeys_table.rowCount()):
+            key = self._hotkeys_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            if key in default_hotkeys:
+                self._hotkeys_table.item(row, 1).setText(default_hotkeys[key])
+
+    # ------------------------------------------------------------------
+    # Performance tab
+    # ------------------------------------------------------------------
+    def _build_performance_tab(self) -> QWidget:
+        """Build the performance settings tab."""
+        from PyQt6.QtWidgets import QSpinBox, QSlider
+        
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(12)
+        
+        # Memory settings group
+        memory_group = QGroupBox("Memory Settings")
+        memory_layout = QFormLayout(memory_group)
+        
+        self._memory_limit_spin = QSpinBox()
+        self._memory_limit_spin.setRange(128, 4096)
+        self._memory_limit_spin.setSuffix(" MB")
+        self._memory_limit_spin.setValue(self._settings.get("memory_limit_mb", 512))
+        self._memory_limit_spin.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 4px;"
+        )
+        memory_layout.addRow("Memory Limit:", self._memory_limit_spin)
+        
+        memory_info = QLabel("Recommended: 256-512 MB for normal use, 1024+ MB for large datasets")
+        memory_info.setStyleSheet("color: #606070; font-size: 10px;")
+        memory_layout.addRow("", memory_info)
+        
+        layout.addWidget(memory_group)
+        
+        # CPU settings group
+        cpu_group = QGroupBox("CPU Usage Policy")
+        cpu_layout = QVBoxLayout(cpu_group)
+        
+        self._cpu_policy_combo = QComboBox()
+        self._cpu_policy_combo.addItems(["Low (Power Saving)", "Balanced", "High (Performance)"])
+        current_policy = self._settings.get("cpu_policy", "balanced")
+        policy_map = {"low": 0, "balanced": 1, "high": 2}
+        self._cpu_policy_combo.setCurrentIndex(policy_map.get(current_policy, 1))
+        self._cpu_policy_combo.setStyleSheet(
+            "QComboBox { background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
+            " padding: 4px 8px; border: 1px solid #3a3a4e; }"
+        )
+        cpu_layout.addWidget(self._cpu_policy_combo)
+        
+        cpu_info = QLabel(
+            "• Low: Reduces background processing, longer response times\n"
+            "• Balanced: Normal operation (recommended)\n"
+            "• High: Faster processing, higher power consumption"
+        )
+        cpu_info.setStyleSheet("color: #606070; font-size: 10px;")
+        cpu_layout.addWidget(cpu_info)
+        
+        layout.addWidget(cpu_group)
+        
+        # GPU settings group
+        gpu_group = QGroupBox("GPU Acceleration")
+        gpu_layout = QVBoxLayout(gpu_group)
+        
+        from PyQt6.QtWidgets import QCheckBox
+        self._gpu_enabled_cb = QCheckBox("Enable GPU acceleration (if available)")
+        self._gpu_enabled_cb.setChecked(self._settings.get("gpu_acceleration", True))
+        self._gpu_enabled_cb.setStyleSheet("color: #c8c8d8;")
+        gpu_layout.addWidget(self._gpu_enabled_cb)
+        
+        gpu_info = QLabel(
+            "GPU acceleration can improve rendering performance for the Gantt chart\n"
+            "and other graphical elements. Disable if you experience display issues."
+        )
+        gpu_info.setStyleSheet("color: #606070; font-size: 10px;")
+        gpu_layout.addWidget(gpu_info)
+        
+        layout.addWidget(gpu_group)
+        
+        # Buffer time settings (moved from General)
+        buffer_group = QGroupBox("Time Estimation")
+        buffer_layout = QFormLayout(buffer_group)
+        
+        self._buffer_time_spin = QSpinBox()
+        self._buffer_time_spin.setRange(0, 120)
+        self._buffer_time_spin.setSuffix(" min/hour")
+        self._buffer_time_spin.setValue(self._settings.get("buffer_time_per_hour", 45))
+        self._buffer_time_spin.setStyleSheet(
+            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
+            "border-radius: 4px; padding: 4px;"
+        )
+        buffer_layout.addRow("Buffer Time:", self._buffer_time_spin)
+        
+        buffer_info = QLabel("Additional time added per hour of estimated work to account for breaks/interruptions")
+        buffer_info.setStyleSheet("color: #606070; font-size: 10px;")
+        buffer_layout.addRow("", buffer_info)
+        
+        layout.addWidget(buffer_group)
+        
+        layout.addStretch()
+        return tab

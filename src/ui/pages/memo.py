@@ -3,12 +3,15 @@ MEMO page — AI Copilot chat/scratchpad interface.
 
 Phase 1: Input area + chat history placeholder (AI wired up in Phase 3).
 """
+import json
+from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -19,6 +22,8 @@ from src.ai.memo_agent import GeneratedItem, call_memo_agent
 from src.database.models import Dependency, Item, Scenario, SessionLocal, Tag
 from src.settings_store import load_settings
 
+_HISTORY_PATH = Path.home() / ".mchigm_thing_manager" / "memo_history.json"
+
 
 class MemoPage(QWidget):
     """Page 3 — MEMO AI Copilot hub."""
@@ -26,16 +31,40 @@ class MemoPage(QWidget):
     def __init__(self, parent: QWidget | None = None, on_items_created=None) -> None:
         super().__init__(parent)
         self._on_items_created = on_items_created
+        self._chat_messages: list[dict] = []
+        self._status_label: QLabel | None = None
         self._setup_ui()
+        self._load_history()
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
 
+        # Title row with status indicator
+        title_row = QHBoxLayout()
         title = QLabel("MEMO — AI Copilot")
         title.setStyleSheet("color: #c8c8d8; font-size: 18px; font-weight: bold;")
-        root.addWidget(title)
+        title_row.addWidget(title)
+        
+        title_row.addStretch()
+        
+        # AI status indicator
+        self._status_label = QLabel()
+        self._update_status_indicator()
+        title_row.addWidget(self._status_label)
+        
+        # Clear history button
+        clear_btn = QPushButton("Clear History")
+        clear_btn.setStyleSheet(
+            "QPushButton { background-color: #3a3a4a; color: #c0c0d0; border-radius: 4px;"
+            " padding: 4px 10px; font-size: 11px; }"
+            "QPushButton:hover { background-color: #4a4a5e; }"
+        )
+        clear_btn.clicked.connect(self._clear_history)
+        title_row.addWidget(clear_btn)
+        
+        root.addLayout(title_row)
 
         # Chat history area
         self._history = QTextEdit()
@@ -84,11 +113,70 @@ class MemoPage(QWidget):
         note.setStyleSheet("color: #505060; font-size: 11px;")
         root.addWidget(note)
 
+    def _update_status_indicator(self) -> None:
+        """Update the AI connection status indicator."""
+        if not self._status_label:
+            return
+        settings = load_settings()
+        api_key = settings.get("ai_api_key", "")
+        model = settings.get("ai_model", "")
+        
+        if api_key and model:
+            self._status_label.setText("🟢 AI Connected")
+            self._status_label.setStyleSheet("color: #5cd685; font-size: 11px;")
+            self._status_label.setToolTip(f"Model: {model}")
+        else:
+            self._status_label.setText("🔴 AI Offline")
+            self._status_label.setStyleSheet("color: #d65c5c; font-size: 11px;")
+            self._status_label.setToolTip("Configure API key in Settings to enable AI")
+
+    def _load_history(self) -> None:
+        """Load chat history from disk."""
+        if _HISTORY_PATH.exists():
+            try:
+                data = json.loads(_HISTORY_PATH.read_text())
+                if isinstance(data, list):
+                    self._chat_messages = data
+                    for msg in self._chat_messages:
+                        role = msg.get("role", "")
+                        content = msg.get("content", "")
+                        if role == "user":
+                            self._history.append(f"<b>You:</b> {content}")
+                        elif role == "ai":
+                            self._history.append(f"<b>AI:</b> {content}")
+                        elif role == "system":
+                            self._history.append(f"<i style='color:#7ab97a;'>{content}</i>")
+            except Exception:
+                pass
+
+    def _save_history(self) -> None:
+        """Save chat history to disk."""
+        try:
+            _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _HISTORY_PATH.write_text(json.dumps(self._chat_messages, indent=2))
+        except Exception:
+            pass
+
+    def _clear_history(self) -> None:
+        """Clear the chat history after confirmation."""
+        reply = QMessageBox.question(
+            self,
+            "Clear History",
+            "Are you sure you want to clear the chat history?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._chat_messages.clear()
+            self._history.clear()
+            self._save_history()
+
     def _send_message(self) -> None:
         text = self._input.text().strip()
         if not text:
             return
         self._history.append(f"<b>You:</b> {text}")
+        self._chat_messages.append({"role": "user", "content": text})
         self._input.clear()
         self._send_btn.setEnabled(False)
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
@@ -96,6 +184,7 @@ class MemoPage(QWidget):
 
         try:
             settings = load_settings()
+            self._update_status_indicator()  # Refresh status
             ai_text, items = call_memo_agent(
                 text, settings.get("ai_model", ""), settings.get("ai_api_key", "")
             )
@@ -103,21 +192,24 @@ class MemoPage(QWidget):
             created = self._persist_items(items)
             if ai_text:
                 self._history.append(f"<b>AI:</b> {ai_text}")
+                self._chat_messages.append({"role": "ai", "content": ai_text})
             if created:
-                self._history.append(
-                    f"<i style='color:#7ab97a;'>Created {created} item(s) and refreshed views.</i>"
-                )
+                msg = f"Created {created} item(s) and refreshed views."
+                self._history.append(f"<i style='color:#7ab97a;'>{msg}</i>")
+                self._chat_messages.append({"role": "system", "content": msg})
                 if self._on_items_created:
                     self._on_items_created()
             elif not ai_text:
                 self._history.append("<i style='color:#606070;'>No AI response.</i>")
-        except Exception:
-            self._history.append(
-                "<i style='color:#b97a7a;'>An error occurred while generating or saving the AI memo. Please try again.</i>"
-            )
+                self._chat_messages.append({"role": "system", "content": "No AI response."})
+        except Exception as e:
+            error_msg = f"Error: {str(e)[:100]}" if str(e) else "An error occurred"
+            self._history.append(f"<i style='color:#b97a7a;'>{error_msg}</i>")
+            self._chat_messages.append({"role": "system", "content": error_msg})
         finally:
             QApplication.restoreOverrideCursor()
             self._send_btn.setEnabled(True)
+            self._save_history()
     def _persist_items(self, items: list[GeneratedItem]) -> int:
         if not items:
             return 0

@@ -125,6 +125,13 @@ class Item(Base):
     end_time = Column(DateTime, nullable=True)
     deadline = Column(DateTime, nullable=True)
 
+    # Estimated time (in minutes) and workload (1-5 scale)
+    estimated_time = Column(Integer, nullable=True)  # minutes
+    workload = Column(Integer, nullable=True)  # 1-5 scale
+    
+    # Hyperlinks (JSON array stored as text)
+    links = Column(Text, default="[]")
+
     # Workspace
     scenario_id = Column(Integer, ForeignKey("scenarios.id", ondelete="SET NULL"), nullable=True)
     scenario = relationship("Scenario", back_populates="items")
@@ -157,6 +164,38 @@ class Item(Base):
 
     def __repr__(self) -> str:
         return f"<Item id={self.id} title={self.title!r} type={self.type} status={self.status}>"
+    
+    def total_time_with_buffer(self, buffer_per_hour: int = 45) -> int:
+        """Return estimated time + buffer time in minutes."""
+        if not self.estimated_time:
+            return 0
+        hours = self.estimated_time / 60
+        buffer = int(hours * buffer_per_hour)
+        return self.estimated_time + buffer
+
+
+class ItemTemplate(Base):
+    """Reusable item template for quick creation."""
+    
+    __tablename__ = "item_templates"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    title_template = Column(String(255), default="")
+    description_template = Column(Text, default="")
+    type = Column(Enum(ItemType), default=ItemType.TASK, nullable=False)
+    status = Column(Enum(ItemStatus), default=ItemStatus.TODO, nullable=False)
+    estimated_time = Column(Integer, nullable=True)
+    workload = Column(Integer, nullable=True)
+    scenario_id = Column(Integer, ForeignKey("scenarios.id", ondelete="SET NULL"), nullable=True)
+    scenario = relationship("Scenario")
+    # Tags stored as comma-separated tag names
+    tag_names = Column(Text, default="")
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    def __repr__(self) -> str:
+        return f"<ItemTemplate id={self.id} name={self.name!r}>"
 
 
 class Dependency(Base):

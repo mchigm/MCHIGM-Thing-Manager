@@ -37,11 +37,12 @@ _STATUS_COLOR = {
     ItemStatus.DOING: QColor("#5a4a7a"),
     ItemStatus.DONE: QColor("#3a6a4a"),
 }
-_ROW_HEIGHT = 34
-_PADDING = 24
-_DAY_WIDTH = 120
-_MIN_ZOOM = 60
-_MAX_ZOOM = 220
+_ROW_HEIGHT = 48
+_PADDING = 30
+_DAY_WIDTH = 180
+_MIN_ZOOM = 80
+_MAX_ZOOM = 300
+_BAR_HEIGHT = 28
 
 
 class PlanBarItem(QGraphicsRectItem):
@@ -60,8 +61,8 @@ class PlanBarItem(QGraphicsRectItem):
         color: QColor,
         refresh_cb,
     ) -> None:
-        width = max(60.0, (end - start).total_seconds() / 86400 * day_width)
-        super().__init__(0, 0, width, 18)
+        width = max(80.0, (end - start).total_seconds() / 86400 * day_width)
+        super().__init__(0, 0, width, _BAR_HEIGHT)
         self._item_id = item.id
         self._duration = end - start
         self._baseline = baseline
@@ -84,9 +85,9 @@ class PlanBarItem(QGraphicsRectItem):
             f"Status: {item.status.value}  •  Type: {item.type.value}"
         )
 
-        label = QGraphicsSimpleTextItem(item.title, self)
+        label = QGraphicsSimpleTextItem(item.title[:30] + ("..." if len(item.title) > 30 else ""), self)
         label.setBrush(Qt.GlobalColor.white)
-        label.setPos(6, -2)
+        label.setPos(6, (_BAR_HEIGHT - 14) / 2)  # Center vertically
         self._press_x = x
 
     def itemChange(self, change, value):
@@ -180,6 +181,7 @@ class PlanPage(QWidget):
         self._current_search = ""
         self._zoom_value_label: QLabel | None = None
         self._zoom_slider: QSlider | None = None
+        self._stats_labels: dict[str, QLabel] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -189,12 +191,22 @@ class PlanPage(QWidget):
 
         # Title row
         title_row = QHBoxLayout()
-        title = QLabel("Plan — Roadmap & Retrospective")
+        title = QLabel("📊 Plan — Roadmap & Retrospective")
         title.setStyleSheet("color: #c8c8d8; font-size: 18px; font-weight: bold;")
         title_row.addWidget(title)
         title_row.addStretch()
 
-        export_btn = QPushButton("Export PDF")
+        # Add new item button
+        add_btn = QPushButton("+ New Item")
+        add_btn.setStyleSheet(
+            "QPushButton { background-color: #5cd685; color: #1a1a2e; border-radius: 4px;"
+            " padding: 6px 12px; font-size: 12px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #6ce695; }"
+        )
+        add_btn.clicked.connect(self._add_new_item)
+        title_row.addWidget(add_btn)
+
+        export_btn = QPushButton("📄 Export PDF")
         export_btn.setStyleSheet(
             "QPushButton { background-color: #3a5a7a; color: #ffffff; border-radius: 4px;"
             " padding: 6px 12px; font-size: 12px; }"
@@ -203,7 +215,7 @@ class PlanPage(QWidget):
         export_btn.clicked.connect(self._export_pdf)
         title_row.addWidget(export_btn)
 
-        retro_btn = QPushButton("Weekly Retrospective")
+        retro_btn = QPushButton("📈 Weekly Retrospective")
         retro_btn.setStyleSheet(
             "QPushButton { background-color: #5a4a7a; color: #ffffff; border-radius: 4px;"
             " padding: 6px 12px; font-size: 12px; }"
@@ -213,28 +225,120 @@ class PlanPage(QWidget):
         title_row.addWidget(retro_btn)
         root.addLayout(title_row)
 
+        # Statistics panel
+        stats_frame = QFrame()
+        stats_frame.setStyleSheet(
+            "QFrame { background-color: #1a1a2e; border-radius: 8px; border: 1px solid #2a2a3e; }"
+        )
+        stats_layout = QHBoxLayout(stats_frame)
+        stats_layout.setContentsMargins(12, 8, 12, 8)
+        stats_layout.setSpacing(20)
+        
+        # Status counts
+        for status in ItemStatus:
+            color = _STATUS_COLOR.get(status, QColor("#4a4a5a")).name()
+            stat_widget = QWidget()
+            stat_vbox = QVBoxLayout(stat_widget)
+            stat_vbox.setContentsMargins(0, 0, 0, 0)
+            stat_vbox.setSpacing(2)
+            
+            count_label = QLabel("0")
+            count_label.setStyleSheet(f"color: {color}; font-size: 20px; font-weight: bold;")
+            count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._stats_labels[f"count_{status.value}"] = count_label
+            stat_vbox.addWidget(count_label)
+            
+            name_label = QLabel(status.value)
+            name_label.setStyleSheet(f"color: #808090; font-size: 10px;")
+            name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            stat_vbox.addWidget(name_label)
+            
+            stats_layout.addWidget(stat_widget)
+        
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet("color: #3a3a4e;")
+        stats_layout.addWidget(sep)
+        
+        # Total workload
+        workload_widget = QWidget()
+        workload_vbox = QVBoxLayout(workload_widget)
+        workload_vbox.setContentsMargins(0, 0, 0, 0)
+        workload_vbox.setSpacing(2)
+        
+        workload_label = QLabel("0h")
+        workload_label.setStyleSheet("color: #5cd685; font-size: 20px; font-weight: bold;")
+        workload_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._stats_labels["total_time"] = workload_label
+        workload_vbox.addWidget(workload_label)
+        
+        workload_name = QLabel("Est. Time")
+        workload_name.setStyleSheet("color: #808090; font-size: 10px;")
+        workload_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        workload_vbox.addWidget(workload_name)
+        
+        stats_layout.addWidget(workload_widget)
+        
+        # Average workload
+        avg_widget = QWidget()
+        avg_vbox = QVBoxLayout(avg_widget)
+        avg_vbox.setContentsMargins(0, 0, 0, 0)
+        avg_vbox.setSpacing(2)
+        
+        avg_label = QLabel("0")
+        avg_label.setStyleSheet("color: #d6b55c; font-size: 20px; font-weight: bold;")
+        avg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._stats_labels["avg_workload"] = avg_label
+        avg_vbox.addWidget(avg_label)
+        
+        avg_name = QLabel("Avg Workload")
+        avg_name.setStyleSheet("color: #808090; font-size: 10px;")
+        avg_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avg_vbox.addWidget(avg_name)
+        
+        stats_layout.addWidget(avg_widget)
+        stats_layout.addStretch()
+        
+        root.addWidget(stats_frame)
+
         # Timeline controls
         controls = QHBoxLayout()
         controls.setSpacing(8)
         controls.setContentsMargins(0, 0, 0, 0)
-        zoom_label = QLabel("Timeline scale")
+        
+        zoom_label = QLabel("🔍 Scale:")
         zoom_label.setStyleSheet("color: #9aa0b8; font-size: 12px;")
         controls.addWidget(zoom_label)
 
         self._zoom_slider = QSlider(Qt.Orientation.Horizontal)
         self._zoom_slider.setRange(_MIN_ZOOM, _MAX_ZOOM)
         self._zoom_slider.setValue(_DAY_WIDTH)
-        self._zoom_slider.setFixedWidth(180)
+        self._zoom_slider.setFixedWidth(150)
         self._zoom_slider.valueChanged.connect(self._on_zoom_changed)
         controls.addWidget(self._zoom_slider)
 
         self._zoom_value_label = QLabel("100%")
         self._zoom_value_label.setStyleSheet("color: #c8c8d8; font-size: 12px;")
         controls.addWidget(self._zoom_value_label)
+        
+        controls.addSpacing(20)
+        
+        # Legend
+        legend_label = QLabel("Legend:")
+        legend_label.setStyleSheet("color: #9aa0b8; font-size: 12px;")
+        controls.addWidget(legend_label)
+        
+        for status in ItemStatus:
+            color = _STATUS_COLOR.get(status, QColor("#4a4a5a")).name()
+            legend_item = QLabel(f"● {status.value}")
+            legend_item.setStyleSheet(f"color: {color}; font-size: 11px;")
+            controls.addWidget(legend_item)
+        
         controls.addStretch()
         root.addLayout(controls)
 
-        # Gantt placeholder using QGraphicsView
+        # Gantt view
         self._scene = QGraphicsScene()
         self._scene.setBackgroundBrush(QColor("#0f1222"))
 
@@ -245,8 +349,40 @@ class PlanPage(QWidget):
         self._view.setRenderHints(
             QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing
         )
+        self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
 
         root.addWidget(self._view, stretch=1)
+
+    def _update_stats(self, items: list[Item]) -> None:
+        """Update the statistics panel with current item data."""
+        # Count by status
+        status_counts = {status: 0 for status in ItemStatus}
+        total_time = 0
+        workloads = []
+        
+        for item in items:
+            status_counts[item.status] = status_counts.get(item.status, 0) + 1
+            if item.estimated_time:
+                total_time += item.estimated_time
+            if item.workload:
+                workloads.append(item.workload)
+        
+        # Update labels
+        for status in ItemStatus:
+            if f"count_{status.value}" in self._stats_labels:
+                self._stats_labels[f"count_{status.value}"].setText(str(status_counts.get(status, 0)))
+        
+        # Total time in hours
+        hours = total_time / 60
+        if "total_time" in self._stats_labels:
+            self._stats_labels["total_time"].setText(f"{hours:.1f}h")
+        
+        # Average workload
+        avg_workload = sum(workloads) / len(workloads) if workloads else 0
+        if "avg_workload" in self._stats_labels:
+            self._stats_labels["avg_workload"].setText(f"{avg_workload:.1f}")
 
     def refresh_items(self, scenario_name: str = "All", search_text: str = "") -> None:
         """Reload items and redraw the roadmap."""
@@ -254,6 +390,7 @@ class PlanPage(QWidget):
         self._current_search = search_text
         items = self._query_items(scenario_name, search_text)
         self._current_items = items
+        self._update_stats(items)
         self._render_gantt(items)
 
     def _refresh_current(self) -> None:
@@ -397,9 +534,13 @@ class PlanPage(QWidget):
 
     def _fit_scene(self) -> None:
         rect = self._scene.itemsBoundingRect()
-        padded = rect.adjusted(-_PADDING, -_PADDING, _PADDING, _PADDING)
+        padded = rect.adjusted(-_PADDING, -_PADDING, _PADDING * 2, _PADDING * 2)
         if padded.isValid():
-            self._view.fitInView(padded, Qt.AspectRatioMode.KeepAspectRatio)
+            self._scene.setSceneRect(padded)
+            # Don't auto-fit to view - let user scroll and zoom manually
+            # Reset view to show top-left corner at 1:1 scale
+            self._view.resetTransform()
+            self._view.centerOn(padded.topLeft())
 
     def _export_pdf(self) -> None:
         """Render the current roadmap scene to a PDF without extra dependencies."""
@@ -428,14 +569,20 @@ class PlanPage(QWidget):
         """Summarize recently completed work."""
         now = datetime.now(timezone.utc)
         week_ago = now - timedelta(days=7)
+        recent_data: list[tuple[str, str, str]] = []
         with SessionLocal() as session:
             recent = (
                 session.query(Item)
+                .options(selectinload(Item.scenario))
                 .filter(Item.status == ItemStatus.DONE, Item.updated_at >= week_ago)
+                .order_by(Item.updated_at.desc())
                 .all()
             )
+            for item in recent:
+                scenario_name = item.scenario.name if item.scenario else "Unassigned"
+                recent_data.append((scenario_name, item.title, item.type.value))
 
-        if not recent:
+        if not recent_data:
             QMessageBox.information(
                 self,
                 "Weekly Retrospective",
@@ -443,14 +590,36 @@ class PlanPage(QWidget):
             )
             return
 
-        by_scenario: dict[str, int] = {}
-        for item in recent:
-            name = item.scenario.name if item.scenario else "Unassigned"
-            by_scenario[name] = by_scenario.get(name, 0) + 1
+        by_scenario: dict[str, list[str]] = {}
+        by_type: dict[str, int] = {}
+        for scenario_name, title, type_name in recent_data:
+            if scenario_name not in by_scenario:
+                by_scenario[scenario_name] = []
+            by_scenario[scenario_name].append(title)
+            by_type[type_name] = by_type.get(type_name, 0) + 1
 
-        lines = [f"Completed this week: {len(recent)} items"]
-        for scenario, count in sorted(by_scenario.items()):
-            lines.append(f"- {scenario}: {count}")
-        lines.append("\nTracker time will be included once time entries are persisted.")
+        lines = [f"🎉 Completed this week: {len(recent_data)} items\n"]
+        
+        # Summary by type
+        lines.append("By Type:")
+        for type_name, count in sorted(by_type.items()):
+            emoji = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(type_name, "📋")
+            lines.append(f"  {emoji} {type_name}: {count}")
+        
+        lines.append("\nBy Scenario:")
+        for scenario, items in sorted(by_scenario.items()):
+            lines.append(f"\n  📁 {scenario} ({len(items)}):")
+            for title in items[:5]:  # Show up to 5 items per scenario
+                lines.append(f"    ✓ {title[:40]}{'...' if len(title) > 40 else ''}")
+            if len(items) > 5:
+                lines.append(f"    ... and {len(items) - 5} more")
 
         QMessageBox.information(self, "Weekly Retrospective", "\n".join(lines))
+
+    def _add_new_item(self) -> None:
+        """Open dialog to create a new item from the Plan page."""
+        from src.ui.pages.todos import NewItemDialog
+        from src.database.models import ItemStatus
+        dialog = NewItemDialog(ItemStatus.TODO, self)
+        if dialog.exec():
+            self._refresh_current()
