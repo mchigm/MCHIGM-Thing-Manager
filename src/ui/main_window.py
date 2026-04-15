@@ -12,8 +12,8 @@ Provides:
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QKeySequence, QShortcut, QPixmap
+from PyQt6.QtCore import Qt, QTimer, QUrl
+from PyQt6.QtGui import QDesktopServices, QIcon, QKeySequence, QShortcut, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -35,12 +35,14 @@ from PyQt6.QtWidgets import (
 
 from src.database.models import Item, ItemStatus, ItemType, Scenario, SessionLocal, Tag
 from src.i18n import tr
-from src.settings_store import load_settings
+from src.settings_store import load_settings, save_settings
+from src.updater import check_for_updates
 from src.ui.pages.memo import MemoPage
 from src.ui.pages.plan import PlanPage
 from src.ui.pages.timetable import TimetablePage
 from src.ui.pages.todos import TodosPage
 from src.ui.settings_window import SettingsWindow
+from src.version import APP_VERSION
 
 # ---------------------------------------------------------------------------
 # Stylesheet constants
@@ -100,6 +102,7 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._register_shortcuts()
         self._load_scenarios()
+        QTimer.singleShot(1500, self._auto_check_updates)
 
     def _set_app_icon(self) -> None:
         """Set the application window icon."""
@@ -537,6 +540,47 @@ class MainWindow(QMainWindow):
         dialog = QuickCaptureDialog(self._scenario_combo.currentText(), self)
         if dialog.exec():
             self._refresh_pages()
+
+    def _auto_check_updates(self) -> None:
+        settings = load_settings()
+        if not settings.get("auto_check_updates", True):
+            return
+        result = check_for_updates(
+            current_version=APP_VERSION,
+            owner=str(settings.get("update_repo_owner", "duidui")),
+            repo=str(settings.get("update_repo_name", "MCHIGM_s-Thing_TM-Manager")),
+            include_prerelease=bool(settings.get("update_include_prerelease", False)),
+        )
+        if not result.success:
+            return
+
+        merged = load_settings()
+        merged.update(
+            {
+                "last_update_check": result.checked_at,
+                "last_update_version": result.latest_version,
+            }
+        )
+        save_settings(merged)
+
+        if not result.has_update:
+            return
+
+        target = result.download_url or result.release_url
+        if settings.get("auto_update_enabled", False):
+            if target:
+                QDesktopServices.openUrl(QUrl(target))
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Update Available",
+            f"A new version is available: {result.latest_version}\n\nCurrent version: {APP_VERSION}\n\nOpen download page now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Yes and target:
+            QDesktopServices.openUrl(QUrl(target))
 
 
 class QuickCaptureDialog(QDialog):

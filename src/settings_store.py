@@ -9,6 +9,13 @@ from typing import Any, Dict
 
 _DEFAULTS: Dict[str, Any] = {
     "language": "en",
+    "update_repo_owner": "duidui",
+    "update_repo_name": "MCHIGM_s-Thing_TM-Manager",
+    "auto_check_updates": True,
+    "auto_update_enabled": False,
+    "update_include_prerelease": False,
+    "last_update_check": "",
+    "last_update_version": "",
     "ai_model": "gpt-3.5-turbo",
     "ai_api_key": "",
     "mcp_server_url": "",

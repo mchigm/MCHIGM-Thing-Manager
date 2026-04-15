@@ -43,6 +43,7 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 - **Emergency Levels**: Configure custom urgency levels in Settings; assign them to items to surface colored emphasis on Kanban cards
 - **Roadmap Period Filter**: Plan page supports period-based filtering with overlap/inside-only modes
 - **Workload Buffer Curve**: Plan duration and timeline bar length are based on expected time + non-linear workload-adjusted buffer
+- **Auto Update**: GitHub-release based update checks with startup auto-check, optional automatic update action, and a manual “Check Latest Version” button in Settings
 
 
 ## Phased Development

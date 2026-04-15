@@ -66,6 +66,11 @@ class TestLoadSettings:
         with _patch_path(tmp_path):
             result = ss.load_settings()
         assert result["language"] == "en"
+        assert result["auto_check_updates"] is True
+        assert result["auto_update_enabled"] is False
+        assert result["update_include_prerelease"] is False
+        assert result["update_repo_owner"] == "duidui"
+        assert result["update_repo_name"] == "MCHIGM_s-Thing_TM-Manager"
         assert result["calendar_provider"] == "none"
         assert result["calendar_connected"] is False
         assert result["calendar_auto_sync"] is True

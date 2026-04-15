@@ -7,7 +7,8 @@ Phase 1: General (theme, default scenario, notifications) and
 import shutil
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QDesktopServices
 
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -33,6 +34,8 @@ from src.mcp_client import MCPClientManager
 from src.calendar_sync import CalendarSyncManager, CalendarProvider
 from src.i18n import tr
 from src.settings_store import load_settings, save_settings
+from src.updater import check_for_updates
+from src.version import APP_VERSION
 
 
 class SettingsWindow(QDialog):
@@ -61,6 +64,12 @@ class SettingsWindow(QDialog):
         self._status_details = None
         self._emergency_levels_edit = None
         self._language_combo = None
+        self._auto_check_updates_cb = None
+        self._auto_update_enabled_cb = None
+        self._update_prerelease_cb = None
+        self._update_repo_owner_edit = None
+        self._update_repo_name_edit = None
+        self._last_update_label = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -232,6 +241,43 @@ class SettingsWindow(QDialog):
         notif_layout.addWidget(self._notif_deadline_cb)
 
         layout.addWidget(notif_box)
+
+        # Updates
+        updates_box = QGroupBox("Updates")
+        updates_form = QFormLayout(updates_box)
+
+        updates_form.addRow("Current Version:", QLabel(APP_VERSION))
+
+        self._auto_check_updates_cb = QCheckBox("Check for updates at startup")
+        self._auto_check_updates_cb.setChecked(self._settings.get("auto_check_updates", True))
+        updates_form.addRow("Auto Check:", self._auto_check_updates_cb)
+
+        self._auto_update_enabled_cb = QCheckBox("Open update page automatically when a new version is found")
+        self._auto_update_enabled_cb.setChecked(self._settings.get("auto_update_enabled", False))
+        updates_form.addRow("Auto Update:", self._auto_update_enabled_cb)
+
+        self._update_prerelease_cb = QCheckBox("Include pre-release versions")
+        self._update_prerelease_cb.setChecked(self._settings.get("update_include_prerelease", False))
+        updates_form.addRow("Update Channel:", self._update_prerelease_cb)
+
+        self._update_repo_owner_edit = QLineEdit(self._settings.get("update_repo_owner", "duidui"))
+        self._update_repo_name_edit = QLineEdit(
+            self._settings.get("update_repo_name", "MCHIGM_s-Thing_TM-Manager")
+        )
+        updates_form.addRow("Repo Owner:", self._update_repo_owner_edit)
+        updates_form.addRow("Repo Name:", self._update_repo_name_edit)
+
+        check_row = QHBoxLayout()
+        check_now_btn = QPushButton("Check Latest Version")
+        check_now_btn.clicked.connect(self._check_updates_now)
+        check_row.addWidget(check_now_btn)
+        self._last_update_label = QLabel(self._build_update_status_text())
+        self._last_update_label.setStyleSheet("color: #808090; font-size: 11px;")
+        self._last_update_label.setWordWrap(True)
+        check_row.addWidget(self._last_update_label, stretch=1)
+        updates_form.addRow("Manual Check:", check_row)
+
+        layout.addWidget(updates_box)
         
         # Color Picker Tool
         color_box = QGroupBox("Color Picker")
@@ -617,6 +663,68 @@ class SettingsWindow(QDialog):
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
 
+    def _build_update_status_text(self) -> str:
+        latest = str(self._settings.get("last_update_version", "")).strip()
+        checked = str(self._settings.get("last_update_check", "")).strip()
+        if not checked:
+            return "Last check: never"
+        if latest:
+            return f"Last check: {checked}  •  Latest: {latest}"
+        return f"Last check: {checked}"
+
+    def _check_updates_now(self) -> None:
+        owner = self._update_repo_owner_edit.text().strip() if self._update_repo_owner_edit else ""
+        repo = self._update_repo_name_edit.text().strip() if self._update_repo_name_edit else ""
+        include_prerelease = (
+            self._update_prerelease_cb.isChecked() if self._update_prerelease_cb else False
+        )
+        result = check_for_updates(
+            current_version=APP_VERSION,
+            owner=owner,
+            repo=repo,
+            include_prerelease=include_prerelease,
+        )
+        self._settings["last_update_check"] = result.checked_at
+        self._settings["last_update_version"] = result.latest_version
+        saved = load_settings()
+        saved.update(
+            {
+                "last_update_check": result.checked_at,
+                "last_update_version": result.latest_version,
+                "update_repo_owner": owner,
+                "update_repo_name": repo,
+                "update_include_prerelease": include_prerelease,
+            }
+        )
+        save_settings(saved)
+        if self._last_update_label:
+            self._last_update_label.setText(self._build_update_status_text())
+
+        if not result.success:
+            QMessageBox.warning(self, "Update Check", result.message)
+            return
+        if not result.has_update:
+            QMessageBox.information(self, "Update Check", result.message)
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Update Available",
+            f"A new version is available: {result.latest_version}\n\nCurrent version: {APP_VERSION}\n\nOpen download page now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        target = result.download_url or result.release_url
+        if not target or not QDesktopServices.openUrl(QUrl(target)):
+            QMessageBox.warning(
+                self,
+                "Update Check",
+                "Update found, but the download page could not be opened automatically.",
+            )
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -705,6 +813,27 @@ class SettingsWindow(QDialog):
                     "gpu_acceleration": (self._gpu_enabled_cb.isChecked() if hasattr(self, '_gpu_enabled_cb') else True),
                     "buffer_time_per_hour": (self._buffer_time_spin.value() if hasattr(self, '_buffer_time_spin') else 45),
                     "language": (self._language_combo.currentData() if self._language_combo else "en"),
+                    "auto_check_updates": (
+                        self._auto_check_updates_cb.isChecked() if self._auto_check_updates_cb else True
+                    ),
+                    "auto_update_enabled": (
+                        self._auto_update_enabled_cb.isChecked() if self._auto_update_enabled_cb else False
+                    ),
+                    "update_include_prerelease": (
+                        self._update_prerelease_cb.isChecked() if self._update_prerelease_cb else False
+                    ),
+                    "update_repo_owner": (
+                        self._update_repo_owner_edit.text().strip()
+                        if self._update_repo_owner_edit
+                        else "duidui"
+                    ),
+                    "update_repo_name": (
+                        self._update_repo_name_edit.text().strip()
+                        if self._update_repo_name_edit
+                        else "MCHIGM_s-Thing_TM-Manager"
+                    ),
+                    "last_update_check": self._settings.get("last_update_check", ""),
+                    "last_update_version": self._settings.get("last_update_version", ""),
                     # Hotkeys
                     "hotkeys": hotkeys,
                 }
