@@ -207,6 +207,27 @@ class TestItemModel:
         assert item.end_time is None
         assert item.deadline is None
 
+    def test_item_repeat_fields(self, db_session):
+        now = datetime.now(timezone.utc)
+        item = Item(
+            title="Weekly class",
+            start_time=now,
+            repeat_pattern="weekly",
+            repeat_until=now + timedelta(days=30),
+        )
+        db_session.add(item)
+        db_session.flush()
+        assert item.repeat_pattern == "weekly"
+        assert item.repeat_until is not None
+
+    def test_total_time_with_buffer_uses_workload_curve(self, db_session):
+        low = Item(title="Low", estimated_time=120, workload=1)
+        mid = Item(title="Mid", estimated_time=120, workload=3)
+        high = Item(title="High", estimated_time=120, workload=5)
+        db_session.add_all([low, mid, high])
+        db_session.flush()
+        assert low.total_time_with_buffer(45) < mid.total_time_with_buffer(45) < high.total_time_with_buffer(45)
+
     def test_item_all_types(self, db_session):
         for item_type in ItemType:
             item = Item(title=f"Test {item_type.value}", type=item_type)

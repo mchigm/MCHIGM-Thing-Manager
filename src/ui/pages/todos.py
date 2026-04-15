@@ -3,9 +3,11 @@ TODOs page — Kanban board (Backlog → To-Do → Doing → Done).
 
 Phase 1: Column structure with live items pulled from the database.
 """
-from datetime import datetime, timezone
-from PyQt6.QtCore import Qt, QTimer, QMimeData, QByteArray
-from PyQt6.QtGui import QDrag, QCursor
+import json
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from PyQt6.QtCore import Qt, QTimer, QMimeData, QByteArray, QDateTime, QUrl
+from PyQt6.QtGui import QDrag, QCursor, QDesktopServices
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -23,11 +25,14 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QDialogButtonBox,
     QComboBox,
+    QCheckBox,
+    QDateTimeEdit,
 )
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from src.database.models import Item, ItemStatus, ItemType, ItemTemplate, Scenario, SessionLocal, Tag
+from src.scheduling import calculate_buffer_minutes
 from src.ui.search_filters import parse_search_text
 from src.settings_store import load_settings
 
@@ -240,6 +245,84 @@ class ItemDetailsDialog(QDialog):
                 self.level_combo.setCurrentIndex(idx)
         form.addRow("Emergency:", self.level_combo)
 
+        # Start time
+        self.start_time_enabled = QCheckBox("Set start time")
+        self.start_time_enabled.setChecked(bool(item.start_time))
+        self.start_time_edit = QDateTimeEdit()
+        self.start_time_edit.setCalendarPopup(True)
+        start_dt = item.start_time or datetime.now(timezone.utc)
+        self.start_time_edit.setDateTime(
+            QDateTime(
+                start_dt.year,
+                start_dt.month,
+                start_dt.day,
+                start_dt.hour,
+                start_dt.minute,
+            )
+        )
+        self.start_time_edit.setEnabled(self.start_time_enabled.isChecked())
+        self.start_time_enabled.toggled.connect(self.start_time_edit.setEnabled)
+        start_row = QHBoxLayout()
+        start_row.addWidget(self.start_time_enabled)
+        start_row.addWidget(self.start_time_edit)
+        form.addRow("Start:", start_row)
+
+        # Deadline
+        self.deadline_enabled = QCheckBox("Set deadline")
+        self.deadline_enabled.setChecked(bool(item.deadline))
+        self.deadline_edit = QDateTimeEdit()
+        self.deadline_edit.setCalendarPopup(True)
+        deadline_dt = item.deadline or datetime.now(timezone.utc)
+        self.deadline_edit.setDateTime(
+            QDateTime(
+                deadline_dt.year,
+                deadline_dt.month,
+                deadline_dt.day,
+                deadline_dt.hour,
+                deadline_dt.minute,
+            )
+        )
+        self.deadline_edit.setEnabled(self.deadline_enabled.isChecked())
+        self.deadline_enabled.toggled.connect(self.deadline_edit.setEnabled)
+        deadline_row = QHBoxLayout()
+        deadline_row.addWidget(self.deadline_enabled)
+        deadline_row.addWidget(self.deadline_edit)
+        form.addRow("Deadline:", deadline_row)
+
+        # Repeat schedule
+        self.repeat_combo = QComboBox()
+        self.repeat_combo.addItem("None", None)
+        self.repeat_combo.addItem("Daily", "daily")
+        self.repeat_combo.addItem("Weekly", "weekly")
+        self.repeat_combo.addItem("Monthly", "monthly")
+        repeat_pattern = (item.repeat_pattern or "").strip().lower()
+        for idx in range(self.repeat_combo.count()):
+            if (self.repeat_combo.itemData(idx) or "") == repeat_pattern:
+                self.repeat_combo.setCurrentIndex(idx)
+                break
+        form.addRow("Repeat:", self.repeat_combo)
+
+        self.repeat_until_enabled = QCheckBox("Set repeat end")
+        self.repeat_until_enabled.setChecked(bool(item.repeat_until))
+        self.repeat_until_edit = QDateTimeEdit()
+        self.repeat_until_edit.setCalendarPopup(True)
+        repeat_until_dt = item.repeat_until or datetime.now(timezone.utc)
+        self.repeat_until_edit.setDateTime(
+            QDateTime(
+                repeat_until_dt.year,
+                repeat_until_dt.month,
+                repeat_until_dt.day,
+                repeat_until_dt.hour,
+                repeat_until_dt.minute,
+            )
+        )
+        self.repeat_until_edit.setEnabled(self.repeat_until_enabled.isChecked())
+        self.repeat_until_enabled.toggled.connect(self.repeat_until_edit.setEnabled)
+        repeat_until_row = QHBoxLayout()
+        repeat_until_row.addWidget(self.repeat_until_enabled)
+        repeat_until_row.addWidget(self.repeat_until_edit)
+        form.addRow("Repeat Until:", repeat_until_row)
+
         # Read-only info
         info_text = f"""
         Type: {item.type.value}
@@ -260,27 +343,28 @@ class ItemDetailsDialog(QDialog):
         info_label.setWordWrap(True)
         form.addRow("Info:", info_label)
         
-        # Links section - extract URLs from description
+        # Links section - extract URLs from description and saved link list
         links = self._extract_links(item.description or "")
-        if item.links:
-            links.extend([l.strip() for l in item.links.split('\n') if l.strip()])
+        links.extend(self._parse_links_text(item.links or ""))
+        links = list(dict.fromkeys([url for url in links if url]))
         if links:
             links_label = QLabel()
-            links_label.setOpenExternalLinks(True)
+            links_label.setOpenExternalLinks(False)
+            links_label.linkActivated.connect(self._open_link)
             links_html = "<br>".join([f'<a href="{url}" style="color: #5c85d6;">{url[:50]}{"..." if len(url) > 50 else ""}</a>' for url in links[:5]])
             links_label.setText(links_html)
             links_label.setStyleSheet("padding: 4px;")
             form.addRow("Links:", links_label)
         
         # Links input field
-        self.links_edit = QLineEdit(item.links or "")
+        self.links_edit = QTextEdit("\n".join(self._parse_links_text(item.links or "")))
         self.links_edit.setPlaceholderText("Add links (one per line or comma-separated)")
         self.links_edit.setStyleSheet(
             "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
             "border-radius: 4px; padding: 4px;"
         )
+        self.links_edit.setMaximumHeight(80)
         form.addRow("Add Links:", self.links_edit)
-        form.addRow("Info:", info_label)
 
         layout.addLayout(form)
 
@@ -327,6 +411,10 @@ class ItemDetailsDialog(QDialog):
             'tags': ', '.join(tag.name for tag in item.tags) if item.tags else '',
             'estimated_time': item.estimated_time,
             'workload': item.workload,
+            'start_time': item.start_time,
+            'deadline': item.deadline,
+            'repeat_pattern': item.repeat_pattern,
+            'repeat_until': item.repeat_until,
         }
 
     def _delete_item(self):
@@ -373,7 +461,18 @@ class ItemDetailsDialog(QDialog):
             if item:
                 item.title = self.title_edit.text().strip()[:255]
                 item.description = self.description_edit.toPlainText().strip()
-                item.links = self.links_edit.text().strip()
+                item.links = self._serialize_links(self.links_edit.toPlainText())
+                item.start_time = self._widget_datetime(self.start_time_edit) if self.start_time_enabled.isChecked() else None
+                item.deadline = self._widget_datetime(self.deadline_edit) if self.deadline_enabled.isChecked() else None
+                item.repeat_pattern = self.repeat_combo.currentData()
+                item.repeat_until = self._widget_datetime(self.repeat_until_edit) if self.repeat_until_enabled.isChecked() else None
+                if item.start_time and item.estimated_time and (not item.end_time or item.end_time <= item.start_time):
+                    settings = load_settings()
+                    buffer_per_hour = settings.get("buffer_time_per_hour", 45)
+                    duration = item.estimated_time + calculate_buffer_minutes(
+                        item.estimated_time, item.workload, buffer_per_hour
+                    )
+                    item.end_time = item.start_time + timedelta(minutes=max(15, duration))
                 self._save_emergency_level(session, item)
                 session.commit()
         self.accept()
@@ -383,6 +482,47 @@ class ItemDetailsDialog(QDialog):
         import re
         url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
         return re.findall(url_pattern, text)
+
+    @staticmethod
+    def _widget_datetime(widget: QDateTimeEdit) -> datetime:
+        dt = widget.dateTime().toPyDateTime()
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def _parse_links_text(raw: str) -> list[str]:
+        text = (raw or "").strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(link).strip() for link in parsed if str(link).strip()]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        normalized = text.replace(",", "\n")
+        return [part.strip() for part in normalized.splitlines() if part.strip()]
+
+    @staticmethod
+    def _serialize_links(raw: str) -> str:
+        links = ItemDetailsDialog._parse_links_text(raw)
+        return json.dumps(links)
+
+    def _open_link(self, raw_url: str) -> None:
+        value = (raw_url or "").strip()
+        if not value:
+            return
+        if value.startswith("file://"):
+            url = QUrl(value)
+        elif value.startswith("/") or value.startswith("~"):
+            path = Path(value).expanduser().resolve()
+            url = QUrl.fromLocalFile(str(path))
+        else:
+            url = QUrl.fromUserInput(value)
+        if not url.isValid():
+            QMessageBox.warning(self, "Link", f"Invalid link: {value}")
+            return
+        if not QDesktopServices.openUrl(url):
+            QMessageBox.warning(self, "Link", f"Could not open link:\n{value}")
 
     def _save_emergency_level(self, session: Session, item: Item) -> None:
         """Update the item's emergency level tag based on selection."""
@@ -487,6 +627,90 @@ class NewItemDialog(QDialog):
                 self.scenario_combo.setCurrentIndex(idx)
         form.addRow("Scenario:", self.scenario_combo)
 
+        # Start time
+        self.start_time_enabled = QCheckBox("Set start time")
+        start_dt = self._template_data.get("start_time")
+        if not start_dt and self._template_data.get("start_date") is not None:
+            qdate = self._template_data.get("start_date")
+            start_dt = datetime(qdate.year(), qdate.month(), qdate.day(), 9, 0, tzinfo=timezone.utc)
+        self.start_time_enabled.setChecked(bool(start_dt))
+        self.start_time_edit = QDateTimeEdit()
+        self.start_time_edit.setCalendarPopup(True)
+        start_default = start_dt or datetime.now(timezone.utc)
+        self.start_time_edit.setDateTime(
+            QDateTime(
+                start_default.year,
+                start_default.month,
+                start_default.day,
+                start_default.hour,
+                start_default.minute,
+            )
+        )
+        self.start_time_edit.setEnabled(self.start_time_enabled.isChecked())
+        self.start_time_enabled.toggled.connect(self.start_time_edit.setEnabled)
+        start_row = QHBoxLayout()
+        start_row.addWidget(self.start_time_enabled)
+        start_row.addWidget(self.start_time_edit)
+        form.addRow("Start:", start_row)
+
+        # Deadline
+        self.deadline_enabled = QCheckBox("Set deadline")
+        deadline_dt = self._template_data.get("deadline")
+        self.deadline_enabled.setChecked(bool(deadline_dt))
+        self.deadline_edit = QDateTimeEdit()
+        self.deadline_edit.setCalendarPopup(True)
+        deadline_default = deadline_dt or datetime.now(timezone.utc)
+        self.deadline_edit.setDateTime(
+            QDateTime(
+                deadline_default.year,
+                deadline_default.month,
+                deadline_default.day,
+                deadline_default.hour,
+                deadline_default.minute,
+            )
+        )
+        self.deadline_edit.setEnabled(self.deadline_enabled.isChecked())
+        self.deadline_enabled.toggled.connect(self.deadline_edit.setEnabled)
+        deadline_row = QHBoxLayout()
+        deadline_row.addWidget(self.deadline_enabled)
+        deadline_row.addWidget(self.deadline_edit)
+        form.addRow("Deadline:", deadline_row)
+
+        # Repeat schedule
+        self.repeat_combo = QComboBox()
+        self.repeat_combo.addItem("None", None)
+        self.repeat_combo.addItem("Daily", "daily")
+        self.repeat_combo.addItem("Weekly", "weekly")
+        self.repeat_combo.addItem("Monthly", "monthly")
+        pattern = (self._template_data.get("repeat_pattern") or "").strip().lower()
+        for idx in range(self.repeat_combo.count()):
+            if (self.repeat_combo.itemData(idx) or "") == pattern:
+                self.repeat_combo.setCurrentIndex(idx)
+                break
+        form.addRow("Repeat:", self.repeat_combo)
+
+        self.repeat_until_enabled = QCheckBox("Set repeat end")
+        repeat_until_dt = self._template_data.get("repeat_until")
+        self.repeat_until_enabled.setChecked(bool(repeat_until_dt))
+        self.repeat_until_edit = QDateTimeEdit()
+        self.repeat_until_edit.setCalendarPopup(True)
+        repeat_until_default = repeat_until_dt or datetime.now(timezone.utc)
+        self.repeat_until_edit.setDateTime(
+            QDateTime(
+                repeat_until_default.year,
+                repeat_until_default.month,
+                repeat_until_default.day,
+                repeat_until_default.hour,
+                repeat_until_default.minute,
+            )
+        )
+        self.repeat_until_edit.setEnabled(self.repeat_until_enabled.isChecked())
+        self.repeat_until_enabled.toggled.connect(self.repeat_until_edit.setEnabled)
+        repeat_until_row = QHBoxLayout()
+        repeat_until_row.addWidget(self.repeat_until_enabled)
+        repeat_until_row.addWidget(self.repeat_until_edit)
+        form.addRow("Repeat Until:", repeat_until_row)
+
         # Estimated time (minutes)
         time_row = QHBoxLayout()
         self.estimated_time_edit = QSpinBox()
@@ -518,6 +742,9 @@ class NewItemDialog(QDialog):
             self.workload_combo.addItem(label, i)
         if self._template_data.get('workload'):
             self.workload_combo.setCurrentIndex(self._template_data['workload'])
+        self.workload_combo.currentIndexChanged.connect(
+            lambda _: self._update_buffer_label(self.estimated_time_edit.value())
+        )
         workload_row.addWidget(self.workload_combo)
         workload_row.addStretch()
         form.addRow("Workload:", workload_row)
@@ -668,15 +895,19 @@ class NewItemDialog(QDialog):
 
     def _update_buffer_label(self, minutes: int):
         """Update the buffer time label."""
-        from src.settings_store import load_settings
         settings = load_settings()
         buffer_per_hour = settings.get("buffer_time_per_hour", 45)
+        workload = self.workload_combo.currentData() if hasattr(self, "workload_combo") else None
         if minutes > 0:
-            hours = minutes / 60
-            buffer = int(hours * buffer_per_hour)
+            buffer = calculate_buffer_minutes(minutes, workload, buffer_per_hour)
             self.buffer_label.setText(f"(+{buffer} min buffer)")
         else:
             self.buffer_label.setText("(+0 min buffer)")
+
+    @staticmethod
+    def _widget_datetime(widget: QDateTimeEdit) -> datetime:
+        dt = widget.dateTime().toPyDateTime()
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
     def _create_item(self):
         """Create the new item in the database."""
@@ -695,6 +926,18 @@ class NewItemDialog(QDialog):
             
             estimated_time = self.estimated_time_edit.value() if self.estimated_time_edit.value() > 0 else None
             workload = self.workload_combo.currentData() if self.workload_combo.currentData() > 0 else None
+            start_time = self._widget_datetime(self.start_time_edit) if self.start_time_enabled.isChecked() else None
+            deadline = self._widget_datetime(self.deadline_edit) if self.deadline_enabled.isChecked() else None
+            repeat_pattern = self.repeat_combo.currentData()
+            repeat_until = self._widget_datetime(self.repeat_until_edit) if self.repeat_until_enabled.isChecked() else None
+            end_time = None
+            if start_time and estimated_time:
+                settings = load_settings()
+                buffer_per_hour = settings.get("buffer_time_per_hour", 45)
+                duration_min = estimated_time + calculate_buffer_minutes(
+                    estimated_time, workload, buffer_per_hour
+                )
+                end_time = start_time + timedelta(minutes=max(15, duration_min))
 
             item = Item(
                 title=title[:255],
@@ -704,6 +947,11 @@ class NewItemDialog(QDialog):
                 scenario=scenario,
                 estimated_time=estimated_time,
                 workload=workload,
+                start_time=start_time,
+                end_time=end_time,
+                deadline=deadline,
+                repeat_pattern=repeat_pattern,
+                repeat_until=repeat_until,
             )
             session.add(item)
             session.flush()  # Get the item ID

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QIcon, QKeySequence, QShortcut, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -34,6 +34,8 @@ from PyQt6.QtWidgets import (
 )
 
 from src.database.models import Item, ItemStatus, ItemType, Scenario, SessionLocal, Tag
+from src.i18n import tr
+from src.settings_store import load_settings
 from src.ui.pages.memo import MemoPage
 from src.ui.pages.plan import PlanPage
 from src.ui.pages.timetable import TimetablePage
@@ -88,7 +90,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("MCHIGM Thing Manager")
+        self.setWindowTitle(tr("app.name", "MCHIGM Thing Manager"))
         self.setMinimumSize(900, 620)
         self._set_app_icon()
         self._page_buttons: list[QPushButton] = []
@@ -115,6 +117,17 @@ class MainWindow(QMainWindow):
                 if app:
                     app.setWindowIcon(QIcon(str(icon_path)))
                 break
+
+    def _resolve_icon_path(self) -> Path | None:
+        icon_paths = [
+            Path(__file__).parent.parent.parent / "icon.png",
+            Path(__file__).parent / "icon.png",
+            Path.cwd() / "icon.png",
+        ]
+        for icon_path in icon_paths:
+            if icon_path.exists():
+                return icon_path
+        return None
 
     # ------------------------------------------------------------------
     # Platform-specific decorations
@@ -177,15 +190,27 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(12, 0, 12, 0)
         layout.setSpacing(8)
 
+        logo_path = self._resolve_icon_path()
+        if logo_path:
+            logo = QLabel()
+            logo_pixmap = QPixmap(str(logo_path)).scaled(
+                20,
+                20,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            logo.setPixmap(logo_pixmap)
+            layout.addWidget(logo)
+
         # App name
-        app_label = QLabel("🗂 Thing Manager")
+        app_label = QLabel(tr("app.name", "MCHIGM Thing Manager"))
         app_label.setStyleSheet("color: #5c85d6; font-size: 15px; font-weight: bold;")
         layout.addWidget(app_label)
 
         layout.addSpacing(16)
 
         # Global Workspace dropdown
-        ws_label = QLabel("Workspace:")
+        ws_label = QLabel(tr("top.workspace", "Workspace:"))
         ws_label.setStyleSheet("color: #808090; font-size: 12px;")
         layout.addWidget(ws_label)
 
@@ -205,7 +230,9 @@ class MainWindow(QMainWindow):
 
         # Omni-Search bar
         self._search_bar = QLineEdit()
-        self._search_bar.setPlaceholderText("Search items, #tags, natural language…")
+        self._search_bar.setPlaceholderText(
+            tr("top.search.placeholder", "Search items, #tags, natural language…")
+        )
         self._search_bar.setMinimumWidth(240)
         self._search_bar.setMaximumWidth(400)
         self._search_bar.setStyleSheet(
@@ -216,7 +243,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._search_bar)
 
         # Filter button
-        self._filter_btn = QPushButton("🔍 Filters")
+        self._filter_btn = QPushButton(tr("top.filters", "🔍 Filters"))
         self._filter_btn.setCheckable(True)
         self._filter_btn.setStyleSheet(
             "QPushButton { background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
@@ -230,7 +257,7 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
         # Settings button
-        settings_btn = QPushButton("⚙ Settings")
+        settings_btn = QPushButton(tr("top.settings", "⚙ Settings"))
         settings_btn.setStyleSheet(
             "QPushButton { background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
             " padding: 4px 12px; border: 1px solid #3a3a4e; font-size: 12px; }"
@@ -398,10 +425,10 @@ class MainWindow(QMainWindow):
         layout.setSpacing(4)
 
         pages = [
-            ("✅  TODOs", 0),
-            ("📅  Timetable", 1),
-            ("💬  MEMO", 2),
-            ("🗺   Plan", 3),
+            (tr("nav.todos", "✅  TODOs"), 0),
+            (tr("nav.timetable", "📅  Timetable"), 1),
+            (tr("nav.memo", "💬  MEMO"), 2),
+            (tr("nav.plan", "🗺   Plan"), 3),
         ]
 
         for label, index in pages:
@@ -482,8 +509,18 @@ class MainWindow(QMainWindow):
     # Settings
     # ------------------------------------------------------------------
     def _open_settings(self) -> None:
+        old_lang = str(load_settings().get("language", "en"))
         dlg = SettingsWindow(self)
         dlg.exec()
+        self.setWindowTitle(tr("app.name", "MCHIGM Thing Manager"))
+        new_lang = str(load_settings().get("language", "en"))
+        if old_lang != new_lang:
+            QMessageBox.information(
+                self,
+                tr("settings.title", "Settings"),
+                "Language updated. Restart the app to fully apply all translations.",
+            )
+        self._refresh_pages()
 
     # ------------------------------------------------------------------
     # Helpers

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 _DEFAULTS: Dict[str, Any] = {
+    "language": "en",
     "ai_model": "gpt-3.5-turbo",
     "ai_api_key": "",
     "mcp_server_url": "",

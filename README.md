@@ -24,21 +24,25 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 ### Interactive Kanban Board
 - **Drag & Drop Cards**: Drag kanban cards between columns (Backlog → To-Do → Doing → Done) to update their status automatically
 - **Click to View Details**: Click any card to open a detail dialog showing full item information
-- **Edit Items**: Update title and description directly from the details dialog
+- **Edit Items**: Update title, description, links, start time, deadline, and repeat schedule directly from the details dialog
 - **Time Tracker**: Automatically appears when items are moved to the "Doing" column
 
 ### Dynamic Timetable
 - **Drag to Schedule**: Drag unscheduled tasks from the sidebar onto any date in the calendar to schedule them
+- **Recurring Schedule**: Daily/weekly/monthly repeating items are rendered as repeated occurrences on the calendar
 - **Zoom Controls**: Use the zoom slider (50%-200%) to adjust calendar text size for better readability
 - **Click to View Details**: Click any task to view and edit its details
 - **Resizable Layout**: Adjust the splitter between calendar and sidebar to optimize your workspace
 
 ### Global Features
+- **Localization**: English and Simplified Chinese language support (Settings → General → Language)
 - **Scenario Filtering**: Filter items across all pages by workspace (School, Work, Personal, or All)
 - **Omni-Search**: Search items by title, description, tags, or status
 - **Hotkeys**: Quick navigation (Ctrl+1-4 for pages, Ctrl+Space for quick capture)
 - **Item Details Dialog**: Consistent interface for viewing and editing any item, accessible from kanban cards and timetable tasks
 - **Emergency Levels**: Configure custom urgency levels in Settings; assign them to items to surface colored emphasis on Kanban cards
+- **Roadmap Period Filter**: Plan page supports period-based filtering with overlap/inside-only modes
+- **Workload Buffer Curve**: Plan duration and timeline bar length are based on expected time + non-linear workload-adjusted buffer
 
 
 ## Phased Development
@@ -84,6 +88,7 @@ the Kanban and Timetable views have data to display.
 - Open **Settings → AI Agent** to set your model name (e.g., `gpt-4o-mini`, `claude-3-haiku`)
   and API key (stored locally at `~/.mchigm_thing_manager/settings.json`).
 - Without a key, the MEMO page will still capture your text as a Backlog note.
+- MEMO also includes an **Install CLI** action to install OpenClaw CLI from inside the app.
 
 ### MCP Client (beta)
 - Open **Settings → MCP Client** to point the app at an MCP server (e.g., Craft or Teams connectors).

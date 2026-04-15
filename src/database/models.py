@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 
@@ -124,6 +125,8 @@ class Item(Base):
     start_time = Column(DateTime, nullable=True)
     end_time = Column(DateTime, nullable=True)
     deadline = Column(DateTime, nullable=True)
+    repeat_pattern = Column(String(24), nullable=True)
+    repeat_until = Column(DateTime, nullable=True)
 
     # Estimated time (in minutes) and workload (1-5 scale)
     estimated_time = Column(Integer, nullable=True)  # minutes
@@ -166,11 +169,15 @@ class Item(Base):
         return f"<Item id={self.id} title={self.title!r} type={self.type} status={self.status}>"
     
     def total_time_with_buffer(self, buffer_per_hour: int = 45) -> int:
-        """Return estimated time + buffer time in minutes."""
+        """Return estimated minutes plus non-linear workload-adjusted buffer."""
         if not self.estimated_time:
             return 0
         hours = self.estimated_time / 60
-        buffer = int(hours * buffer_per_hour)
+        base_buffer = hours * max(0, buffer_per_hour)
+        workload = self.workload if self.workload and self.workload > 0 else 3
+        # Curved multiplier: low workload gets less buffer, heavy workload gets more.
+        multiplier = 0.5 + ((workload / 5) ** 1.7) * 1.1
+        buffer = int(round(base_buffer * multiplier))
         return self.estimated_time + buffer
 
 
@@ -309,7 +316,19 @@ def ensure_seed_data() -> None:
             session.commit()
 
 
+def _ensure_item_schema_extensions() -> None:
+    """Add new item columns for existing SQLite databases without migrations."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(items)")).fetchall()
+        existing_cols = {row[1] for row in rows}
+        if "repeat_pattern" not in existing_cols:
+            conn.execute(text("ALTER TABLE items ADD COLUMN repeat_pattern VARCHAR(24)"))
+        if "repeat_until" not in existing_cols:
+            conn.execute(text("ALTER TABLE items ADD COLUMN repeat_until DATETIME"))
+
+
 # ---------------------------------------------------------------------------
 # Create all tables on import
 # ---------------------------------------------------------------------------
 Base.metadata.create_all(engine)
+_ensure_item_schema_extensions()

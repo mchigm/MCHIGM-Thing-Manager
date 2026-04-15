@@ -19,10 +19,12 @@ from PyQt6.QtWidgets import (
     QSlider,
     QButtonGroup,
 )
-from sqlalchemy import or_, func
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 
 from src.database.models import Item, ItemType, Scenario, SessionLocal, Tag
+from src.scheduling import occurrence_windows_for_item
+from src.settings_store import load_settings
 from src.ui.search_filters import parse_search_text
 
 
@@ -471,34 +473,43 @@ class TimetablePage(QWidget):
         # Query items for this date
         start_of_day = datetime(qdate.year(), qdate.month(), qdate.day(), 0, 0, 0, tzinfo=timezone.utc)
         end_of_day = start_of_day + timedelta(days=1)
+        buffer_per_hour = load_settings().get("buffer_time_per_hour", 45)
+        occurrences: list[tuple[datetime, Item]] = []
 
         with SessionLocal() as session:
             items = (
                 session.query(Item)
-                .filter(Item.start_time >= start_of_day, Item.start_time < end_of_day)
-                .order_by(Item.start_time)
+                .options(joinedload(Item.scenario))
+                .filter(Item.start_time.isnot(None))
                 .all()
             )
-
-            if not items:
-                label = QLabel("No items scheduled for this date.")
-                label.setStyleSheet("color: #606070; font-size: 11px;")
-                self._scheduled_list_layout.insertWidget(0, label)
-                return
-
             for item in items:
-                time_str = item.start_time.strftime("%H:%M") if item.start_time else ""
-                # Access scenario within session context
-                color = item.scenario.color if item.scenario else "#5c85d6"
-                type_icon = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(item.type.value, "📋")
-
-                label = QLabel(f"{type_icon} {time_str} {item.title}")
-                label.setStyleSheet(
-                    f"color: #c8c8d8; font-size: 11px; padding: 4px; "
-                    f"background-color: #2a2a3a; border-left: 3px solid {color}; border-radius: 2px;"
+                windows = occurrence_windows_for_item(
+                    item,
+                    buffer_per_hour=buffer_per_hour,
+                    window_start=start_of_day,
+                    window_end=end_of_day,
                 )
-                label.setWordWrap(True)
-                self._scheduled_list_layout.insertWidget(self._scheduled_list_layout.count() - 1, label)
+                for start, _ in windows:
+                    occurrences.append((start, item))
+
+        if not occurrences:
+            label = QLabel("No items scheduled for this date.")
+            label.setStyleSheet("color: #606070; font-size: 11px;")
+            self._scheduled_list_layout.insertWidget(0, label)
+            return
+
+        for start, item in sorted(occurrences, key=lambda row: row[0]):
+            time_str = start.strftime("%H:%M")
+            color = item.scenario.color if item.scenario else "#5c85d6"
+            type_icon = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(item.type.value, "📋")
+            label = QLabel(f"{type_icon} {time_str} {item.title}")
+            label.setStyleSheet(
+                f"color: #c8c8d8; font-size: 11px; padding: 4px; "
+                f"background-color: #2a2a3a; border-left: 3px solid {color}; border-radius: 2px;"
+            )
+            label.setWordWrap(True)
+            self._scheduled_list_layout.insertWidget(self._scheduled_list_layout.count() - 1, label)
 
     def _on_zoom_changed(self, value: int):
         """Handle zoom slider change."""
@@ -538,21 +549,39 @@ class TimetablePage(QWidget):
                     'scenario_color': item.scenario.color if item.scenario else None,
                 })
 
-            # Get scheduled items for calendar highlighting - eagerly load scenario
+            # Get scheduled items for calendar highlighting (including repeating schedules)
             scheduled_query = session.query(Item).options(joinedload(Item.scenario)).filter(Item.start_time.isnot(None))
             if scenario_name != "All":
                 scheduled_query = scheduled_query.outerjoin(Scenario).filter(Scenario.name == scenario_name)
+            if filters.tags:
+                scheduled_query = scheduled_query.filter(Item.tags.any(Tag.name.in_(filters.tags)))
+            if filters.statuses:
+                scheduled_query = scheduled_query.filter(Item.status.in_(filters.statuses))
+            for term in filters.terms:
+                like = f"%{term}%"
+                scheduled_query = scheduled_query.filter(or_(Item.title.ilike(like), Item.description.ilike(like)))
             scheduled = scheduled_query.all()
-            
+
             # Extract scheduled data while in session
+            now = datetime.now(timezone.utc)
+            window_start = now - timedelta(days=30)
+            window_end = now + timedelta(days=365)
+            buffer_per_hour = load_settings().get("buffer_time_per_hour", 45)
             for item in scheduled:
-                scheduled_data.append({
-                    'id': item.id,
-                    'title': item.title,
-                    'start_time': item.start_time,
-                    'type_value': item.type.value,
-                    'scenario_color': item.scenario.color if item.scenario else "#5c85d6",
-                })
+                windows = occurrence_windows_for_item(
+                    item,
+                    buffer_per_hour=buffer_per_hour,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+                for start, _ in windows:
+                    scheduled_data.append({
+                        'id': item.id,
+                        'title': item.title,
+                        'start_time': start,
+                        'type_value': item.type.value,
+                        'scenario_color': item.scenario.color if item.scenario else "#5c85d6",
+                    })
 
             # Update calendar with scheduled items (pass extracted data)
             if self._calendar:
@@ -603,43 +632,41 @@ class TimetablePage(QWidget):
                 month_end = today.replace(year=today.year + 1, month=1, day=1)
             else:
                 month_end = today.replace(month=today.month + 1, day=1)
-            
-            # Convert to datetime for queries
+
             today_start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc)
             today_end = today_start + timedelta(days=1)
             week_start_dt = datetime(week_start.year, week_start.month, week_start.day, 0, 0, 0, tzinfo=timezone.utc)
             week_end_dt = datetime(week_end.year, week_end.month, week_end.day, 0, 0, 0, tzinfo=timezone.utc)
             month_start_dt = datetime(month_start.year, month_start.month, month_start.day, 0, 0, 0, tzinfo=timezone.utc)
             month_end_dt = datetime(month_end.year, month_end.month, month_end.day, 0, 0, 0, tzinfo=timezone.utc)
-            
-            # Count items for today
-            today_count = session.query(Item).filter(
-                Item.start_time >= today_start, Item.start_time < today_end
-            ).count()
-            
-            # Count items for this week
-            week_count = session.query(Item).filter(
-                Item.start_time >= week_start_dt, Item.start_time < week_end_dt
-            ).count()
-            
-            # Count items for this month
-            month_count = session.query(Item).filter(
-                Item.start_time >= month_start_dt, Item.start_time < month_end_dt
-            ).count()
-            
-            # Today's total workload
-            today_workload_result = session.query(func.sum(Item.workload)).filter(
-                Item.start_time >= today_start, Item.start_time < today_end,
-                Item.workload.isnot(None)
-            ).scalar()
-            today_workload = today_workload_result or 0
-            
-            # Average estimated time per week (based on this week)
-            week_time_result = session.query(func.sum(Item.estimated_time)).filter(
-                Item.start_time >= week_start_dt, Item.start_time < week_end_dt,
-                Item.estimated_time.isnot(None)
-            ).scalar()
-            week_time = week_time_result or 0
+
+            items = session.query(Item).filter(Item.start_time.isnot(None)).all()
+            buffer_per_hour = load_settings().get("buffer_time_per_hour", 45)
+            windows: list[tuple[datetime, Item]] = []
+            for item in items:
+                for start, _ in occurrence_windows_for_item(
+                    item,
+                    buffer_per_hour=buffer_per_hour,
+                    window_start=week_start_dt,
+                    window_end=month_end_dt,
+                ):
+                    windows.append((start, item))
+
+            today_count = sum(1 for start, _ in windows if today_start <= start < today_end)
+            week_count = sum(1 for start, _ in windows if week_start_dt <= start < week_end_dt)
+            month_count = sum(1 for start, _ in windows if month_start_dt <= start < month_end_dt)
+
+            today_workload = sum(
+                (item.workload or 0)
+                for start, item in windows
+                if today_start <= start < today_end
+            )
+
+            week_time = sum(
+                (item.estimated_time or 0)
+                for start, item in windows
+                if week_start_dt <= start < week_end_dt
+            )
             avg_time_display = f"{week_time} min" if week_time > 0 else "0 min"
         
         # Update labels

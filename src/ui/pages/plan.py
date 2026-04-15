@@ -6,7 +6,7 @@ Phase 5 adds lightweight Gantt rendering, PDF export, and a real retrospective m
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt, QDateTime
 from PyQt6.QtGui import QColor, QPageSize, QPainter, QPen, QPdfWriter
 from PyQt6.QtWidgets import (
     QFrame,
@@ -21,6 +21,9 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSlider,
+    QCheckBox,
+    QDateTimeEdit,
+    QComboBox,
     QVBoxLayout,
     QWidget,
 )
@@ -28,6 +31,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm import selectinload
 
 from src.database.models import Dependency, Item, ItemStatus, Scenario, SessionLocal, Tag
+from src.i18n import tr
+from src.scheduling import item_duration_minutes, occurrence_windows_for_item
+from src.settings_store import load_settings
 from src.ui.search_filters import parse_search_text
 from src.ui.pages.todos import ItemDetailsDialog
 
@@ -61,7 +67,7 @@ class PlanBarItem(QGraphicsRectItem):
         color: QColor,
         refresh_cb,
     ) -> None:
-        width = max(80.0, (end - start).total_seconds() / 86400 * day_width)
+        width = max(12.0, (end - start).total_seconds() / 86400 * day_width)
         super().__init__(0, 0, width, _BAR_HEIGHT)
         self._item_id = item.id
         self._duration = end - start
@@ -127,13 +133,18 @@ class PlanBarItem(QGraphicsRectItem):
 
     def _open_details(self) -> None:
         with SessionLocal() as session:
-            item = session.get(Item, self._item_id)
+            # Keep the session alive during the dialog and preload relations used by the dialog.
+            item = (
+                session.query(Item)
+                .options(selectinload(Item.tags), selectinload(Item.scenario))
+                .filter(Item.id == self._item_id)
+                .first()
+            )
             if not item:
                 return
-            session.expunge(item)
-        dialog = ItemDetailsDialog(item)
-        if dialog.exec():
-            self._refresh_cb()
+            dialog = ItemDetailsDialog(item)
+            if dialog.exec():
+                self._refresh_cb()
 
     def _persist_move(self) -> None:
         new_start = self._baseline + timedelta(days=(self.pos().x() - _PADDING) / self._day_width)
@@ -182,6 +193,10 @@ class PlanPage(QWidget):
         self._zoom_value_label: QLabel | None = None
         self._zoom_slider: QSlider | None = None
         self._stats_labels: dict[str, QLabel] = {}
+        self._period_enabled: QCheckBox | None = None
+        self._period_start: QDateTimeEdit | None = None
+        self._period_end: QDateTimeEdit | None = None
+        self._period_mode: QComboBox | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -321,8 +336,52 @@ class PlanPage(QWidget):
         self._zoom_value_label = QLabel("100%")
         self._zoom_value_label.setStyleSheet("color: #c8c8d8; font-size: 12px;")
         controls.addWidget(self._zoom_value_label)
-        
-        controls.addSpacing(20)
+
+        controls.addSpacing(14)
+
+        self._period_enabled = QCheckBox(tr("period.enable", "Period filter"))
+        self._period_enabled.toggled.connect(lambda _: self._refresh_current())
+        controls.addWidget(self._period_enabled)
+
+        controls.addWidget(QLabel(tr("period.start", "From:")))
+        self._period_start = QDateTimeEdit()
+        self._period_start.setCalendarPopup(True)
+        now = datetime.now(timezone.utc)
+        self._period_start.setDateTime(
+            QDateTime(now.year, now.month, now.day, 0, 0)
+        )
+        self._period_start.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._period_start.setEnabled(False)
+        self._period_start.dateTimeChanged.connect(lambda _: self._refresh_current())
+        controls.addWidget(self._period_start)
+
+        controls.addWidget(QLabel(tr("period.end", "To:")))
+        self._period_end = QDateTimeEdit()
+        self._period_end.setCalendarPopup(True)
+        end = now + timedelta(days=14)
+        self._period_end.setDateTime(
+            QDateTime(end.year, end.month, end.day, 23, 59)
+        )
+        self._period_end.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self._period_end.setEnabled(False)
+        self._period_end.dateTimeChanged.connect(lambda _: self._refresh_current())
+        controls.addWidget(self._period_end)
+
+        self._period_mode = QComboBox()
+        self._period_mode.addItem(tr("period.mode.overlap", "Overlap"), "overlap")
+        self._period_mode.addItem(tr("period.mode.exact", "Inside only"), "inside")
+        self._period_mode.setEnabled(False)
+        self._period_mode.currentIndexChanged.connect(lambda _: self._refresh_current())
+        controls.addWidget(self._period_mode)
+
+        def _toggle_period_widgets(enabled: bool) -> None:
+            self._period_start.setEnabled(enabled)
+            self._period_end.setEnabled(enabled)
+            self._period_mode.setEnabled(enabled)
+
+        self._period_enabled.toggled.connect(_toggle_period_widgets)
+
+        controls.addSpacing(16)
         
         # Legend
         legend_label = QLabel("Legend:")
@@ -361,11 +420,11 @@ class PlanPage(QWidget):
         status_counts = {status: 0 for status in ItemStatus}
         total_time = 0
         workloads = []
+        buffer_per_hour = load_settings().get("buffer_time_per_hour", 45)
         
         for item in items:
             status_counts[item.status] = status_counts.get(item.status, 0) + 1
-            if item.estimated_time:
-                total_time += item.estimated_time
+            total_time += item_duration_minutes(item, buffer_per_hour)
             if item.workload:
                 workloads.append(item.workload)
         
@@ -414,11 +473,34 @@ class PlanPage(QWidget):
             for term in filters.terms:
                 like = f"%{term}%"
                 query = query.filter(or_(Item.title.ilike(like), Item.description.ilike(like)))
-            return (
+            items = (
                 query.order_by(Item.start_time.is_(None), Item.start_time, Item.deadline, Item.created_at)
                 .distinct()
                 .all()
             )
+            period = self._selected_period_range()
+            if period:
+                period_start, period_end = period
+                mode = self._period_mode.currentData() if self._period_mode else "overlap"
+                filtered: list[Item] = []
+                buffer_per_hour = load_settings().get("buffer_time_per_hour", 45)
+                for item in items:
+                    windows = occurrence_windows_for_item(
+                        item,
+                        buffer_per_hour=buffer_per_hour,
+                        window_start=period_start,
+                        window_end=period_end,
+                    )
+                    if not windows:
+                        continue
+                    if mode == "inside":
+                        if any(start >= period_start and end <= period_end for start, end in windows):
+                            filtered.append(item)
+                    else:
+                        if any(end >= period_start and start <= period_end for start, end in windows):
+                            filtered.append(item)
+                return filtered
+            return items
 
     def _render_gantt(self, items: list[Item]) -> None:
         self._scene.clear()
@@ -428,23 +510,25 @@ class PlanPage(QWidget):
             self._fit_scene()
             return
 
-        start_dates: list[datetime] = []
-        end_dates: list[datetime] = []
-        for item in items:
-            start, end = self._time_window(item)
-            start_dates.append(start)
-            end_dates.append(end)
+        occurrences = self._collect_occurrences(items)
+        if not occurrences:
+            text = self._scene.addText("No items match the selected period.")
+            text.setDefaultTextColor(Qt.GlobalColor.lightGray)
+            self._fit_scene()
+            return
+
+        start_dates = [start for _, start, _ in occurrences]
+        end_dates = [end for _, _, end in occurrences]
         baseline = min(start_dates) if start_dates else datetime.now(timezone.utc)
         now_ts = datetime.now(baseline.tzinfo or timezone.utc)
         latest_end = max(end_dates + [now_ts]) if end_dates else baseline + timedelta(days=1)
 
-        self._draw_time_axis(baseline, latest_end, len(items))
+        self._draw_time_axis(baseline, latest_end, len(occurrences))
 
         positions: dict[int, PlanBarItem] = {}
         pen = QPen(QColor("#2e2e42"))
 
-        for idx, item in enumerate(items):
-            start, end = self._time_window(item)
+        for idx, (item, start, end) in enumerate(occurrences):
             start_days = max(0.0, (start - baseline).total_seconds() / 86400)
             x = _PADDING + start_days * self._day_width
             y = _PADDING + idx * _ROW_HEIGHT
@@ -463,7 +547,8 @@ class PlanPage(QWidget):
                 refresh_cb=self._refresh_current,
             )
             self._scene.addItem(bar)
-            positions[item.id] = bar
+            if item.id not in positions:
+                positions[item.id] = bar
 
         dep_pen = QPen(QColor("#a0a0c0"))
         dep_pen.setWidth(2)
@@ -485,6 +570,53 @@ class PlanPage(QWidget):
                     self._scene.addLine(px + pw, py + parent_rect.height() / 2, child_x, child_y, dep_pen)
 
         self._fit_scene()
+
+    def _selected_period_range(self) -> tuple[datetime, datetime] | None:
+        if not self._period_enabled or not self._period_enabled.isChecked():
+            return None
+        if not self._period_start or not self._period_end:
+            return None
+        start = self._period_start.dateTime().toPyDateTime()
+        end = self._period_end.dateTime().toPyDateTime()
+        start = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
+        end = end if end.tzinfo else end.replace(tzinfo=timezone.utc)
+        if end < start:
+            start, end = end, start
+        return start, end
+
+    def _collect_occurrences(self, items: list[Item]) -> list[tuple[Item, datetime, datetime]]:
+        period = self._selected_period_range()
+        buffer_per_hour = load_settings().get("buffer_time_per_hour", 45)
+        if period:
+            window_start, window_end = period
+        else:
+            now = datetime.now(timezone.utc)
+            window_start, window_end = now - timedelta(days=30), now + timedelta(days=180)
+
+        collected: list[tuple[Item, datetime, datetime]] = []
+        mode = self._period_mode.currentData() if self._period_mode else "overlap"
+
+        for item in items:
+            windows = occurrence_windows_for_item(
+                item,
+                buffer_per_hour=buffer_per_hour,
+                window_start=window_start,
+                window_end=window_end,
+            )
+            if not windows and not period:
+                windows = occurrence_windows_for_item(
+                    item,
+                    buffer_per_hour=buffer_per_hour,
+                    window_start=None,
+                    window_end=None,
+                )[:1]
+            for start, end in windows:
+                if period and mode == "inside" and not (start >= window_start and end <= window_end):
+                    continue
+                if period and mode != "inside" and not (end >= window_start and start <= window_end):
+                    continue
+                collected.append((item, start, end))
+        return collected
 
     def _draw_time_axis(self, baseline: datetime, max_end: datetime, rows: int) -> None:
         """Draw day ticks, grid lines, and a 'Now' marker."""
@@ -511,18 +643,6 @@ class PlanPage(QWidget):
             now_label = self._scene.addText("Now")
             now_label.setDefaultTextColor(QColor("#d65c5c"))
             now_label.setPos(x + 4, _PADDING - 42)
-
-    def _time_window(self, item: Item) -> tuple[datetime, datetime]:
-        """Return (start, end) datetimes for rendering."""
-        start = item.start_time or item.deadline or item.created_at or datetime.now(timezone.utc)
-        end = item.end_time or item.deadline or (start + timedelta(hours=1))
-        if end <= start:
-            end = start + timedelta(hours=1)
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
-        return start, end
 
     def _on_zoom_changed(self, value: int) -> None:
         """Adjust horizontal scale without re-querying the database."""

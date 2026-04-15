@@ -65,6 +65,7 @@ class TestLoadSettings:
     def test_calendar_defaults(self, tmp_path):
         with _patch_path(tmp_path):
             result = ss.load_settings()
+        assert result["language"] == "en"
         assert result["calendar_provider"] == "none"
         assert result["calendar_connected"] is False
         assert result["calendar_auto_sync"] is True

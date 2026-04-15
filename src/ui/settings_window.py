@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from src.mcp_client import MCPClientManager
 from src.calendar_sync import CalendarSyncManager, CalendarProvider
+from src.i18n import tr
 from src.settings_store import load_settings, save_settings
 
 
@@ -39,7 +40,7 @@ class SettingsWindow(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Settings")
+        self.setWindowTitle(tr("settings.title", "Settings"))
         self.setMinimumSize(480, 360)
         self._settings = load_settings()
         self._model_edit = None
@@ -59,6 +60,7 @@ class SettingsWindow(QDialog):
         self._status_badge = None
         self._status_details = None
         self._emergency_levels_edit = None
+        self._language_combo = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -177,6 +179,13 @@ class SettingsWindow(QDialog):
         self._theme_combo = QComboBox()
         self._theme_combo.addItems(["Dark", "Light"])
         appearance_form.addRow("Theme:", self._theme_combo)
+
+        self._language_combo = QComboBox()
+        self._language_combo.addItem(tr("language.english", "English"), "en")
+        self._language_combo.addItem(tr("language.chinese", "中文（简体）"), "zh")
+        current_lang = str(self._settings.get("language", "en")).lower()
+        self._language_combo.setCurrentIndex(1 if current_lang.startswith("zh") else 0)
+        appearance_form.addRow(tr("settings.language", "Language:"), self._language_combo)
 
         layout.addWidget(appearance_box)
 
@@ -695,6 +704,7 @@ class SettingsWindow(QDialog):
                     "cpu_policy": cpu_policy,
                     "gpu_acceleration": (self._gpu_enabled_cb.isChecked() if hasattr(self, '_gpu_enabled_cb') else True),
                     "buffer_time_per_hour": (self._buffer_time_spin.value() if hasattr(self, '_buffer_time_spin') else 45),
+                    "language": (self._language_combo.currentData() if self._language_combo else "en"),
                     # Hotkeys
                     "hotkeys": hotkeys,
                 }

@@ -4,6 +4,8 @@ MEMO page — AI Copilot chat/scratchpad interface.
 Phase 1: Input area + chat history placeholder (AI wired up in Phase 3).
 """
 import json
+import subprocess
+import sys
 from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -20,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from src.ai.memo_agent import GeneratedItem, call_memo_agent
 from src.database.models import Dependency, Item, Scenario, SessionLocal, Tag
+from src.i18n import tr
 from src.settings_store import load_settings
 
 _HISTORY_PATH = Path.home() / ".mchigm_thing_manager" / "memo_history.json"
@@ -53,6 +56,15 @@ class MemoPage(QWidget):
         self._status_label = QLabel()
         self._update_status_indicator()
         title_row.addWidget(self._status_label)
+
+        install_cli_btn = QPushButton(tr("memo.install_cli", "Install CLI"))
+        install_cli_btn.setStyleSheet(
+            "QPushButton { background-color: #3a5a7a; color: #ffffff; border-radius: 4px;"
+            " padding: 4px 10px; font-size: 11px; }"
+            "QPushButton:hover { background-color: #4a6a8a; }"
+        )
+        install_cli_btn.clicked.connect(self._install_openclaw_cli)
+        title_row.addWidget(install_cli_btn)
         
         # Clear history button
         clear_btn = QPushButton("Clear History")
@@ -112,6 +124,42 @@ class MemoPage(QWidget):
         note.setWordWrap(True)
         note.setStyleSheet("color: #505060; font-size: 11px;")
         root.addWidget(note)
+
+    def _install_openclaw_cli(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            tr("memo.install_cli.title", "Install OpenClaw CLI"),
+            tr("memo.install_cli.confirm", "Install OpenClaw CLI using pip now?"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        try:
+            attempts = [
+                [sys.executable, "-m", "pip", "install", "openclaw-cli"],
+                [sys.executable, "-m", "pip", "install", "openclaw"],
+            ]
+            last_error = ""
+            for cmd in attempts:
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    QMessageBox.information(
+                        self,
+                        tr("memo.install_cli.title", "Install OpenClaw CLI"),
+                        tr("memo.install_cli.success", "OpenClaw CLI installed successfully."),
+                    )
+                    return
+                last_error = (result.stderr or result.stdout or "").strip()
+            QMessageBox.warning(
+                self,
+                tr("memo.install_cli.title", "Install OpenClaw CLI"),
+                f"{tr('memo.install_cli.fail', 'OpenClaw CLI installation failed.')}\n\n{last_error[:500]}",
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _update_status_indicator(self) -> None:
         """Update the AI connection status indicator."""
