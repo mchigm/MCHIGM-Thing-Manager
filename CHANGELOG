@@ -1,1 +1,20 @@
 202604152123: Initiated CHANGELOG
+
+CHANGELOG:
+Change: Adjustment made
+Decision: Changes made
+Final: Final decision made
+Debug: Experiment made
+Manual: Content made
+
+Fix: Solving issue
+Patch: Debugging
+Peek: Preview feature
+Pre: Pre major update
+Preview: Add new feature
+Release: Major update
+Update: Major change
+
+Git:
+Update: new update
+Fixed: problem solved
