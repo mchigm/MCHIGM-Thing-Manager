@@ -28,8 +28,9 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QDateTimeEdit,
 )
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from src.database.models import Item, ItemStatus, ItemType, ItemTemplate, Scenario, SessionLocal, Tag
 from src.scheduling import calculate_buffer_minutes
@@ -177,18 +178,23 @@ class DraggableCard(QLabel):
 
     def show_details(self):
         """Open item details dialog."""
-        # Keep session open while dialog is shown to allow lazy loading of relationships
         with SessionLocal() as session:
-            item = session.query(Item).filter(Item.id == self.item_id).first()
+            item = (
+                session.query(Item)
+                .options(selectinload(Item.tags), selectinload(Item.scenario))
+                .filter(Item.id == self.item_id)
+                .first()
+            )
             if not item:
                 return
+            session.expunge(item)
 
-            dialog = ItemDetailsDialog(item, self)
-            if dialog.exec():
-                # Refresh the parent page if changes were made
-                todos_page = self.find_todos_page()
-                if todos_page:
-                    todos_page.refresh_current()
+        dialog = ItemDetailsDialog(item, self)
+        if dialog.exec():
+            # Refresh the parent page if changes were made
+            todos_page = self.find_todos_page()
+            if todos_page:
+                todos_page.refresh_current()
 
     def find_todos_page(self):
         """Find the TodosPage parent widget."""
@@ -456,9 +462,12 @@ class ItemDetailsDialog(QDialog):
 
     def save_changes(self):
         """Save changes to the database."""
-        with SessionLocal() as session:
-            item = session.query(Item).filter(Item.id == self.item_id).first()
-            if item:
+        try:
+            with SessionLocal() as session:
+                item = session.query(Item).filter(Item.id == self.item_id).first()
+                if not item:
+                    QMessageBox.warning(self, "Save Failed", "The item no longer exists.")
+                    return
                 item.title = self.title_edit.text().strip()[:255]
                 item.description = self.description_edit.toPlainText().strip()
                 item.links = self._serialize_links(self.links_edit.toPlainText())
@@ -475,6 +484,9 @@ class ItemDetailsDialog(QDialog):
                     item.end_time = item.start_time + timedelta(minutes=max(15, duration))
                 self._save_emergency_level(session, item)
                 session.commit()
+        except SQLAlchemyError as exc:
+            QMessageBox.critical(self, "Save Failed", f"Could not save changes.\n\n{exc}")
+            return
         self.accept()
 
     def _extract_links(self, text: str) -> list[str]:
@@ -916,62 +928,66 @@ class NewItemDialog(QDialog):
             QMessageBox.warning(self, "Required", "Please enter a title.")
             return
 
-        with SessionLocal() as session:
-            scenario = None
-            scenario_name = self.scenario_combo.currentText()
-            if scenario_name != "None":
-                scenario = session.query(Scenario).filter(Scenario.name == scenario_name).first()
+        try:
+            with SessionLocal() as session:
+                scenario = None
+                scenario_name = self.scenario_combo.currentText()
+                if scenario_name != "None":
+                    scenario = session.query(Scenario).filter(Scenario.name == scenario_name).first()
 
-            item_type = self.type_combo.currentData()
-            
-            estimated_time = self.estimated_time_edit.value() if self.estimated_time_edit.value() > 0 else None
-            workload = self.workload_combo.currentData() if self.workload_combo.currentData() > 0 else None
-            start_time = self._widget_datetime(self.start_time_edit) if self.start_time_enabled.isChecked() else None
-            deadline = self._widget_datetime(self.deadline_edit) if self.deadline_enabled.isChecked() else None
-            repeat_pattern = self.repeat_combo.currentData()
-            repeat_until = self._widget_datetime(self.repeat_until_edit) if self.repeat_until_enabled.isChecked() else None
-            end_time = None
-            if start_time and estimated_time:
-                settings = load_settings()
-                buffer_per_hour = settings.get("buffer_time_per_hour", 45)
-                duration_min = estimated_time + calculate_buffer_minutes(
-                    estimated_time, workload, buffer_per_hour
+                item_type = self.type_combo.currentData()
+
+                estimated_time = self.estimated_time_edit.value() if self.estimated_time_edit.value() > 0 else None
+                workload = self.workload_combo.currentData() if self.workload_combo.currentData() > 0 else None
+                start_time = self._widget_datetime(self.start_time_edit) if self.start_time_enabled.isChecked() else None
+                deadline = self._widget_datetime(self.deadline_edit) if self.deadline_enabled.isChecked() else None
+                repeat_pattern = self.repeat_combo.currentData()
+                repeat_until = self._widget_datetime(self.repeat_until_edit) if self.repeat_until_enabled.isChecked() else None
+                end_time = None
+                if start_time and estimated_time:
+                    settings = load_settings()
+                    buffer_per_hour = settings.get("buffer_time_per_hour", 45)
+                    duration_min = estimated_time + calculate_buffer_minutes(
+                        estimated_time, workload, buffer_per_hour
+                    )
+                    end_time = start_time + timedelta(minutes=max(15, duration_min))
+
+                item = Item(
+                    title=title[:255],
+                    description=self.description_edit.toPlainText().strip(),
+                    type=item_type,
+                    status=self._status,
+                    scenario=scenario,
+                    estimated_time=estimated_time,
+                    workload=workload,
+                    start_time=start_time,
+                    end_time=end_time,
+                    deadline=deadline,
+                    repeat_pattern=repeat_pattern,
+                    repeat_until=repeat_until,
                 )
-                end_time = start_time + timedelta(minutes=max(15, duration_min))
+                session.add(item)
+                session.flush()  # Get the item ID
 
-            item = Item(
-                title=title[:255],
-                description=self.description_edit.toPlainText().strip(),
-                type=item_type,
-                status=self._status,
-                scenario=scenario,
-                estimated_time=estimated_time,
-                workload=workload,
-                start_time=start_time,
-                end_time=end_time,
-                deadline=deadline,
-                repeat_pattern=repeat_pattern,
-                repeat_until=repeat_until,
-            )
-            session.add(item)
-            session.flush()  # Get the item ID
-            
-            # Handle tags
-            tags_text = self.tags_edit.text().strip()
-            if tags_text:
-                tag_names = [t.strip() for t in tags_text.split(',') if t.strip()]
-                for tag_name in tag_names:
-                    # Ensure tag starts with #
-                    if not tag_name.startswith('#'):
-                        tag_name = f'#{tag_name}'
-                    # Find or create tag
-                    tag = session.query(Tag).filter(Tag.name == tag_name).first()
-                    if not tag:
-                        tag = Tag(name=tag_name)
-                        session.add(tag)
-                    item.tags.append(tag)
-            
-            session.commit()
+                # Handle tags
+                tags_text = self.tags_edit.text().strip()
+                if tags_text:
+                    tag_names = [t.strip() for t in tags_text.split(',') if t.strip()]
+                    for tag_name in tag_names:
+                        # Ensure tag starts with #
+                        if not tag_name.startswith('#'):
+                            tag_name = f'#{tag_name}'
+                        # Find or create tag
+                        tag = session.query(Tag).filter(Tag.name == tag_name).first()
+                        if not tag:
+                            tag = Tag(name=tag_name)
+                            session.add(tag)
+                        item.tags.append(tag)
+
+                session.commit()
+        except SQLAlchemyError as exc:
+            QMessageBox.critical(self, "Create Failed", f"Could not create item.\n\n{exc}")
+            return
 
         self.accept()
 

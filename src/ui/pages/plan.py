@@ -133,7 +133,6 @@ class PlanBarItem(QGraphicsRectItem):
 
     def _open_details(self) -> None:
         with SessionLocal() as session:
-            # Keep the session alive during the dialog and preload relations used by the dialog.
             item = (
                 session.query(Item)
                 .options(selectinload(Item.tags), selectinload(Item.scenario))
@@ -142,9 +141,10 @@ class PlanBarItem(QGraphicsRectItem):
             )
             if not item:
                 return
-            dialog = ItemDetailsDialog(item)
-            if dialog.exec():
-                self._refresh_cb()
+            session.expunge(item)
+        dialog = ItemDetailsDialog(item)
+        if dialog.exec():
+            self._refresh_cb()
 
     def _persist_move(self) -> None:
         new_start = self._baseline + timedelta(days=(self.pos().x() - _PADDING) / self._day_width)

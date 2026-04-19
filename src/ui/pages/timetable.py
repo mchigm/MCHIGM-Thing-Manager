@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup,
 )
 from sqlalchemy import or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from src.database.models import Item, ItemType, Scenario, SessionLocal, Tag
 from src.scheduling import occurrence_windows_for_item
@@ -74,18 +74,25 @@ class DraggableTaskCard(QLabel):
         """Open item details (placeholder for now)."""
         # Import here to avoid circular import
         from src.ui.pages.todos import ItemDetailsDialog
-        # Keep session open while dialog is shown to allow lazy loading
+
         with SessionLocal() as session:
-            item = session.query(Item).filter(Item.id == self.item_id).first()
+            item = (
+                session.query(Item)
+                .options(selectinload(Item.tags), selectinload(Item.scenario))
+                .filter(Item.id == self.item_id)
+                .first()
+            )
             if not item:
                 return
+            session.expunge(item)
 
-            dialog = ItemDetailsDialog(item, self)
-            if dialog.exec():
-                # Refresh the parent page
-                timetable_page = self.find_timetable_page()
-                if timetable_page:
-                    timetable_page.refresh_current()
+        dialog = ItemDetailsDialog(item, self)
+        if dialog.exec():
+            # Refresh the parent page
+            timetable_page = self.find_timetable_page()
+            if timetable_page:
+                timetable_page.refresh_current()
+
     def find_timetable_page(self):
         """Find the TimetablePage parent widget."""
         widget = self.parent()

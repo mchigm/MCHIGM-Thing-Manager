@@ -629,33 +629,53 @@ class SettingsWindow(QDialog):
     def _update_color_from_hex(self, hex_color: str) -> None:
         """Update preview and RGBA from hex input."""
         from PyQt6.QtGui import QColor
-        
-        if not hex_color.startswith('#'):
-            hex_color = f'#{hex_color}'
-        
-        color = QColor(hex_color)
-        if color.isValid():
-            rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, 1.0)"
-            self._rgba_edit.blockSignals(True)
-            self._rgba_edit.setText(rgba)
-            self._rgba_edit.blockSignals(False)
-            self._color_preview.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #3a3a4e; border-radius: 4px;")
+
+        value = (hex_color or "").strip()
+        if not value:
+            return
+        if not value.startswith("#"):
+            value = f"#{value}"
+
+        color = QColor(value)
+        if not color.isValid():
+            return
+
+        normalized_hex = color.name()
+        rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, 1.0)"
+        self._rgba_edit.blockSignals(True)
+        self._rgba_edit.setText(rgba)
+        self._rgba_edit.blockSignals(False)
+        self._color_preview.setStyleSheet(
+            f"background-color: {normalized_hex}; border: 1px solid #3a3a4e; border-radius: 4px;"
+        )
 
     def _update_color_from_rgba(self, rgba_str: str) -> None:
         """Update preview and hex from RGBA input."""
         from PyQt6.QtGui import QColor
         import re
-        
-        match = re.match(r'rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)', rgba_str)
-        if match:
-            r, g, b = int(match.group(1)), int(match.group(2)), int(match.group(3))
-            color = QColor(r, g, b)
-            if color.isValid():
-                hex_color = color.name()
-                self._hex_edit.blockSignals(True)
-                self._hex_edit.setText(hex_color)
-                self._hex_edit.blockSignals(False)
-                self._color_preview.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #3a3a4e; border-radius: 4px;")
+
+        match = re.fullmatch(
+            r"rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)",
+            rgba_str or "",
+        )
+        if not match:
+            return
+
+        r, g, b = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        if any(channel < 0 or channel > 255 for channel in (r, g, b)):
+            return
+
+        color = QColor(r, g, b)
+        if not color.isValid():
+            return
+
+        hex_color = color.name()
+        self._hex_edit.blockSignals(True)
+        self._hex_edit.setText(hex_color)
+        self._hex_edit.blockSignals(False)
+        self._color_preview.setStyleSheet(
+            f"background-color: {hex_color}; border: 1px solid #3a3a4e; border-radius: 4px;"
+        )
 
     def _copy_to_clipboard(self, text: str) -> None:
         """Copy text to clipboard."""
