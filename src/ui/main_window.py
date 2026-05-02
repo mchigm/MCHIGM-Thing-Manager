@@ -12,7 +12,7 @@ Provides:
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer, QUrl
+from PyQt6.QtCore import Qt, QThread, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon, QKeySequence, QShortcut, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -36,12 +36,12 @@ from PyQt6.QtWidgets import (
 from src.database.models import Item, ItemStatus, ItemType, Scenario, SessionLocal, Tag
 from src.i18n import tr
 from src.settings_store import load_settings, save_settings
-from src.updater import check_for_updates
 from src.ui.pages.memo import MemoPage
 from src.ui.pages.plan import PlanPage
 from src.ui.pages.timetable import TimetablePage
 from src.ui.pages.todos import TodosPage
 from src.ui.settings_window import SettingsWindow
+from src.ui.update_worker import UpdateCheckWorker
 from src.version import APP_VERSION
 
 # ---------------------------------------------------------------------------
@@ -98,6 +98,8 @@ class MainWindow(QMainWindow):
         self._page_buttons: list[QPushButton] = []
         self._shortcuts: list[QShortcut] = []
         self._active_filters: dict = {}
+        self._update_check_thread: QThread | None = None
+        self._update_check_worker: UpdateCheckWorker | None = None
         self._setup_platform_decorations()
         self._setup_ui()
         self._register_shortcuts()
@@ -448,7 +450,7 @@ class MainWindow(QMainWindow):
 
     def _build_pages(self) -> QStackedWidget:
         self._stack = QStackedWidget()
-        self._todos_page = TodosPage()
+        self._todos_page = TodosPage(on_items_changed=self._refresh_pages)
         self._timetable_page = TimetablePage()
         self._memo_page = MemoPage(on_items_created=self._refresh_pages)
         self._plan_page = PlanPage()
@@ -545,12 +547,38 @@ class MainWindow(QMainWindow):
         settings = load_settings()
         if not settings.get("auto_check_updates", True):
             return
-        result = check_for_updates(
+
+        if self._update_check_thread is not None:
+            return
+
+        owner = str(settings.get("update_repo_owner", "duidui"))
+        repo = str(settings.get("update_repo_name", "MCHIGM_s-Thing_TM-Manager"))
+        include_prerelease = bool(settings.get("update_include_prerelease", False))
+
+        self._update_check_thread = QThread(self)
+        self._update_check_worker = UpdateCheckWorker(
             current_version=APP_VERSION,
-            owner=str(settings.get("update_repo_owner", "duidui")),
-            repo=str(settings.get("update_repo_name", "MCHIGM_s-Thing_TM-Manager")),
-            include_prerelease=bool(settings.get("update_include_prerelease", False)),
+            owner=owner,
+            repo=repo,
+            include_prerelease=include_prerelease,
         )
+        self._update_check_worker.moveToThread(self._update_check_thread)
+        self._update_check_thread.started.connect(self._update_check_worker.run)
+        self._update_check_worker.finished.connect(self._on_auto_update_result)
+        self._update_check_worker.finished.connect(self._cleanup_auto_update_thread)
+        self._update_check_thread.start()
+
+    def _cleanup_auto_update_thread(self, _) -> None:
+        if self._update_check_thread is not None:
+            self._update_check_thread.quit()
+            self._update_check_thread.wait()
+            self._update_check_thread.deleteLater()
+            self._update_check_thread = None
+        if self._update_check_worker is not None:
+            self._update_check_worker.deleteLater()
+            self._update_check_worker = None
+
+    def _on_auto_update_result(self, result) -> None:
         if not result.success:
             return
 
@@ -566,6 +594,7 @@ class MainWindow(QMainWindow):
         if not result.has_update:
             return
 
+        settings = load_settings()
         target = result.download_url or result.release_url
         if settings.get("auto_update_enabled", False):
             if target:

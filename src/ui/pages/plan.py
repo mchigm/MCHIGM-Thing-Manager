@@ -197,6 +197,9 @@ class PlanPage(QWidget):
         self._period_start: QDateTimeEdit | None = None
         self._period_end: QDateTimeEdit | None = None
         self._period_mode: QComboBox | None = None
+        self._status_backlog_cb: QCheckBox | None = None
+        self._status_todo_cb: QCheckBox | None = None
+        self._status_doing_cb: QCheckBox | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -382,6 +385,24 @@ class PlanPage(QWidget):
         self._period_enabled.toggled.connect(_toggle_period_widgets)
 
         controls.addSpacing(16)
+
+        controls.addWidget(QLabel("Statuses:"))
+        self._status_backlog_cb = QCheckBox("Backlog")
+        self._status_backlog_cb.setChecked(True)
+        self._status_backlog_cb.toggled.connect(lambda _: self._refresh_current())
+        controls.addWidget(self._status_backlog_cb)
+
+        self._status_todo_cb = QCheckBox("To-Do")
+        self._status_todo_cb.setChecked(True)
+        self._status_todo_cb.toggled.connect(lambda _: self._refresh_current())
+        controls.addWidget(self._status_todo_cb)
+
+        self._status_doing_cb = QCheckBox("Doing")
+        self._status_doing_cb.setChecked(True)
+        self._status_doing_cb.toggled.connect(lambda _: self._refresh_current())
+        controls.addWidget(self._status_doing_cb)
+
+        controls.addSpacing(10)
         
         # Legend
         legend_label = QLabel("Legend:")
@@ -458,6 +479,9 @@ class PlanPage(QWidget):
 
     def _query_items(self, scenario_name: str, search_text: str) -> list[Item]:
         filters = parse_search_text(search_text)
+        status_filter = self._selected_timeline_statuses()
+        if not status_filter:
+            return []
         with SessionLocal() as session:
             query = (
                 session.query(Item)
@@ -469,7 +493,12 @@ class PlanPage(QWidget):
             if filters.tags:
                 query = query.filter(Item.tags.any(Tag.name.in_(filters.tags)))
             if filters.statuses:
-                query = query.filter(Item.status.in_(filters.statuses))
+                allowed = list(set(filters.statuses) & status_filter)
+                if not allowed:
+                    return []
+                query = query.filter(Item.status.in_(allowed))
+            else:
+                query = query.filter(Item.status.in_(list(status_filter)))
             for term in filters.terms:
                 like = f"%{term}%"
                 query = query.filter(or_(Item.title.ilike(like), Item.description.ilike(like)))
@@ -501,6 +530,18 @@ class PlanPage(QWidget):
                             filtered.append(item)
                 return filtered
             return items
+
+    def _selected_timeline_statuses(self) -> set[ItemStatus]:
+        statuses: set[ItemStatus] = set()
+        if self._status_backlog_cb and self._status_backlog_cb.isChecked():
+            statuses.add(ItemStatus.BACKLOG)
+        if self._status_todo_cb and self._status_todo_cb.isChecked():
+            statuses.add(ItemStatus.TODO)
+        if self._status_doing_cb and self._status_doing_cb.isChecked():
+            statuses.add(ItemStatus.DOING)
+        if not load_settings().get("timeline_hide_finished", False):
+            statuses.add(ItemStatus.DONE)
+        return statuses
 
     def _render_gantt(self, items: list[Item]) -> None:
         self._scene.clear()

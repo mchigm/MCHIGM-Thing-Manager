@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session, selectinload
 from src.database.models import Item, ItemStatus, ItemType, ItemTemplate, Scenario, SessionLocal, Tag
 from src.scheduling import calculate_buffer_minutes
 from src.ui.search_filters import parse_search_text
-from src.settings_store import load_settings
+from src.settings_store import load_settings, save_settings
 
 _COLUMN_COLORS = {
     ItemStatus.BACKLOG: "#4a4a5a",
@@ -44,6 +44,10 @@ _COLUMN_COLORS = {
     ItemStatus.DONE:    "#3a6a4a",
 }
 _LEVEL_PREFIX = "!level:"
+
+
+def _ensure_aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def _load_emergency_levels() -> list[dict[str, str]]:
@@ -79,47 +83,91 @@ def _level_color(level_name: str | None, levels: list[dict[str, str]]) -> str | 
     return None
 
 
+def _level_index(level_name: str | None, levels: list[dict[str, str]]) -> int | None:
+    if not level_name:
+        return None
+    for idx, level in enumerate(levels):
+        if level.get("name") == level_name:
+            return idx
+    return None
+
+
+def _target_emergency_level(
+    deadline: datetime,
+    levels: list[dict[str, str]],
+    step_hours: int = 24,
+    now: datetime | None = None,
+) -> str | None:
+    if not levels:
+        return None
+    if len(levels) == 1:
+        return levels[0].get("name")
+    deadline_tz = _ensure_aware(deadline)
+    current = now or datetime.now(timezone.utc)
+    remaining_hours = (deadline_tz - current).total_seconds() / 3600
+    if remaining_hours <= 0:
+        return levels[-1].get("name")
+    for idx in range(len(levels) - 1):
+        threshold = step_hours * (len(levels) - 1 - idx)
+        if remaining_hours > threshold:
+            return levels[idx].get("name")
+    return levels[-1].get("name")
+
+
 class DraggableCard(QLabel):
     """A draggable Kanban card that stores its item ID and supports drag & drop."""
 
     # Class-level set to track selected cards
     _selected_items: set[int] = set()
 
-    def __init__(self, text: str, item_id: int, accent_color: str | None = None, deadline_status: str | None = None, scenario_color: str | None = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        text: str,
+        item_id: int,
+        accent_color: str | None = None,
+        deadline_status: str | None = None,
+        scenario_color: str | None = None,
+        compact: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(text, parent)
         self.item_id = item_id
         self._is_selected = False
         self._accent_color = accent_color
         self._deadline_status = deadline_status
         self._scenario_color = scenario_color
+        self._compact = compact
         self.setWordWrap(True)
         self._update_style()
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def _update_style(self):
         """Update card style based on selection state."""
-        # Determine border based on deadline status
+        # Determine border style priority:
+        # selected > emergency level accent > deadline state.
         if self._is_selected:
             border = "2px solid #5cd685"  # Green for selected
             bg = "#4a4a60"
+        elif self._accent_color:
+            border = f"2px solid {self._accent_color}"
+            bg = "#3c3c50"
         elif self._deadline_status == "overdue":
             border = "2px solid #d65c5c"
             bg = "#3c3c50"
         elif self._deadline_status == "urgent":
             border = "2px solid #d6a55c"
             bg = "#3c3c50"
-        elif self._accent_color:
-            border = f"2px solid {self._accent_color}"
-            bg = "#3c3c50"
         else:
             border = "none"
             bg = "#3c3c50"
         
         left_border = f"3px solid {self._scenario_color}" if self._scenario_color else "none"
+        padding = "6px" if self._compact else "8px"
+        font_size = "11px" if self._compact else "12px"
         
         self.setStyleSheet(
             f"background-color: {bg}; color: #e0e0e0; border-radius: 4px;"
-            f"padding: 8px; font-size: 12px; border: {border}; border-left: {left_border};"
+            f"padding: {padding}; font-size: {font_size}; border: {border}; border-left: {left_border};"
         )
 
     def mousePressEvent(self, event):
@@ -191,10 +239,9 @@ class DraggableCard(QLabel):
 
         dialog = ItemDetailsDialog(item, self)
         if dialog.exec():
-            # Refresh the parent page if changes were made
             todos_page = self.find_todos_page()
             if todos_page:
-                todos_page.refresh_current()
+                todos_page._notify_items_changed()
 
     def find_todos_page(self):
         """Find the TodosPage parent widget."""
@@ -457,8 +504,11 @@ class ItemDetailsDialog(QDialog):
         dialog = NewItemDialog(self._item_data['status'], self.parent(), template_data)
         dialog.setWindowTitle("Duplicate Item")
         if dialog.exec():
-            # Refresh will happen via parent
-            pass
+            parent_card = self.parent()
+            if isinstance(parent_card, DraggableCard):
+                todos_page = parent_card.find_todos_page()
+                if todos_page:
+                    todos_page._notify_items_changed()
 
     def save_changes(self):
         """Save changes to the database."""
@@ -475,13 +525,15 @@ class ItemDetailsDialog(QDialog):
                 item.deadline = self._widget_datetime(self.deadline_edit) if self.deadline_enabled.isChecked() else None
                 item.repeat_pattern = self.repeat_combo.currentData()
                 item.repeat_until = self._widget_datetime(self.repeat_until_edit) if self.repeat_until_enabled.isChecked() else None
-                if item.start_time and item.estimated_time and (not item.end_time or item.end_time <= item.start_time):
+                start_time = _ensure_aware(item.start_time) if item.start_time else None
+                end_time = _ensure_aware(item.end_time) if item.end_time else None
+                if start_time and item.estimated_time and (not end_time or end_time <= start_time):
                     settings = load_settings()
                     buffer_per_hour = settings.get("buffer_time_per_hour", 45)
                     duration = item.estimated_time + calculate_buffer_minutes(
                         item.estimated_time, item.workload, buffer_per_hour
                     )
-                    item.end_time = item.start_time + timedelta(minutes=max(15, duration))
+                    item.end_time = start_time + timedelta(minutes=max(15, duration))
                 self._save_emergency_level(session, item)
                 session.commit()
         except SQLAlchemyError as exc:
@@ -498,7 +550,7 @@ class ItemDetailsDialog(QDialog):
     @staticmethod
     def _widget_datetime(widget: QDateTimeEdit) -> datetime:
         dt = widget.dateTime().toPyDateTime()
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return _ensure_aware(dt)
 
     @staticmethod
     def _parse_links_text(raw: str) -> list[str]:
@@ -919,7 +971,7 @@ class NewItemDialog(QDialog):
     @staticmethod
     def _widget_datetime(widget: QDateTimeEdit) -> datetime:
         dt = widget.dateTime().toPyDateTime()
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return _ensure_aware(dt)
 
     def _create_item(self):
         """Create the new item in the database."""
@@ -1097,7 +1149,7 @@ class KanbanColumn(QWidget):
             # Refresh the parent page
             todos_page = self.find_todos_page()
             if todos_page:
-                todos_page.refresh_current()
+                todos_page._notify_items_changed()
 
             event.acceptProposedAction()
 
@@ -1116,9 +1168,13 @@ class KanbanColumn(QWidget):
         if dialog.exec():
             todos_page = self.find_todos_page()
             if todos_page:
-                todos_page.refresh_current()
+                todos_page._notify_items_changed()
 
-    def set_cards(self, cards_data: list[tuple[str, int, str | None, str | None, str | None]]) -> None:
+    def set_cards(
+        self,
+        cards_data: list[tuple[str, int, str | None, str | None, str | None]],
+        compact: bool = False,
+    ) -> None:
         """Replace the column content with the provided cards.
         
         cards_data: list of (text, item_id, accent_color, deadline_status, scenario_color) tuples.
@@ -1138,11 +1194,19 @@ class KanbanColumn(QWidget):
             return
 
         for text, item_id, accent, deadline_status, scenario_color in cards_data:
-            self._add_card(text, item_id, accent, deadline_status, scenario_color)
+            self._add_card(text, item_id, accent, deadline_status, scenario_color, compact)
 
-    def _add_card(self, text: str, item_id: int, accent: str | None, deadline_status: str | None = None, scenario_color: str | None = None) -> None:
+    def _add_card(
+        self,
+        text: str,
+        item_id: int,
+        accent: str | None,
+        deadline_status: str | None = None,
+        scenario_color: str | None = None,
+        compact: bool = False,
+    ) -> None:
         """Add a draggable card to the column."""
-        card = DraggableCard(text, item_id, accent, deadline_status, scenario_color)
+        card = DraggableCard(text, item_id, accent, deadline_status, scenario_color, compact=compact)
         # Insert before the trailing stretch
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
 
@@ -1160,8 +1224,9 @@ class KanbanColumn(QWidget):
 class TodosPage(QWidget):
     """Page 1 — TODO Kanban board."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, on_items_changed=None) -> None:
         super().__init__(parent)
+        self._on_items_changed = on_items_changed
         self._columns: dict[ItemStatus, KanbanColumn] = {}
         self._tracker_timer = QTimer(self)
         self._tracker_timer.timeout.connect(self._tick_tracker)
@@ -1170,7 +1235,14 @@ class TodosPage(QWidget):
         self._tracker_frame: QWidget | None = None
         self._tracker_label: QLabel | None = None
         self._tracker_button: QPushButton | None = None
+        self._sort_combo: QComboBox | None = None
+        self._compact_cards_cb: QCheckBox | None = None
+        self._settings_cache = load_settings()
+        self._emergency_timer = QTimer(self)
+        self._emergency_timer.timeout.connect(self._auto_escalate_emergency)
         self._setup_ui()
+        self._emergency_timer.start(60 * 1000)
+        QTimer.singleShot(2000, self._auto_escalate_emergency)
 
 
     def _setup_ui(self) -> None:
@@ -1208,6 +1280,29 @@ class TodosPage(QWidget):
         
         root.addLayout(title_row)
 
+        options_row = QHBoxLayout()
+        options_row.setSpacing(8)
+        options_row.addWidget(QLabel("Sort:"))
+        self._sort_combo = QComboBox()
+        self._sort_combo.addItem("Created", "created")
+        self._sort_combo.addItem("Deadline (soonest)", "deadline")
+        self._sort_combo.addItem("Emergency (high first)", "emergency")
+        self._sort_combo.addItem("Title (A-Z)", "title")
+        saved_sort = str(self._settings_cache.get("kanban_sort_mode", "created"))
+        for idx in range(self._sort_combo.count()):
+            if self._sort_combo.itemData(idx) == saved_sort:
+                self._sort_combo.setCurrentIndex(idx)
+                break
+        self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        options_row.addWidget(self._sort_combo)
+
+        self._compact_cards_cb = QCheckBox("Compact cards")
+        self._compact_cards_cb.setChecked(bool(self._settings_cache.get("kanban_compact_cards", False)))
+        self._compact_cards_cb.toggled.connect(self._on_compact_cards_toggled)
+        options_row.addWidget(self._compact_cards_cb)
+        options_row.addStretch()
+        root.addLayout(options_row)
+
         tracker = self._build_tracker()
         root.addWidget(tracker)
 
@@ -1238,13 +1333,14 @@ class TodosPage(QWidget):
             for term in filters.terms:
                 like = f"%{term}%"
                 query = query.filter(or_(Item.title.ilike(like), Item.description.ilike(like)))
-            for item in query.order_by(Item.created_at).distinct().all():
+            items = self._sort_items(query.distinct().all(), levels)
+            for item in items:
                 parts = [item.title, f"Type: {item.type.value}"]
                 
                 # Determine deadline status
                 deadline_status = None
                 if item.deadline:
-                    deadline_tz = item.deadline if item.deadline.tzinfo else item.deadline.replace(tzinfo=timezone.utc)
+                    deadline_tz = _ensure_aware(item.deadline)
                     parts.append(f"Deadline: {item.deadline.strftime('%b %d, %H:%M')}")
                     if deadline_tz < now:
                         deadline_status = "overdue"
@@ -1267,9 +1363,53 @@ class TodosPage(QWidget):
                 
                 cards[item.status].append(("\n".join(parts), item.id, level_color, deadline_status, scenario_color))
 
+        compact = bool(self._compact_cards_cb.isChecked()) if self._compact_cards_cb else False
         for status, column in self._columns.items():
-            column.set_cards(cards.get(status, []))
+            column.set_cards(cards.get(status, []), compact=compact)
         self._update_tracker_visibility(bool(cards.get(ItemStatus.DOING)))
+
+    def _sort_items(self, items: list[Item], levels: list[dict[str, str]]) -> list[Item]:
+        mode = self._sort_combo.currentData() if self._sort_combo else "created"
+        if mode == "title":
+            return sorted(items, key=lambda item: (item.title or "").lower())
+        if mode == "deadline":
+            far_future = datetime.max.replace(tzinfo=timezone.utc)
+            return sorted(
+                items,
+                key=lambda item: (_ensure_aware(item.deadline) if item.deadline else far_future, item.created_at),
+            )
+        if mode == "emergency":
+            return sorted(
+                items,
+                key=lambda item: (
+                    -(_level_index(_level_from_tags(item.tags), levels) or -1),
+                    _ensure_aware(item.deadline) if item.deadline else datetime.max.replace(tzinfo=timezone.utc),
+                    item.created_at,
+                ),
+            )
+        return sorted(items, key=lambda item: item.created_at)
+
+    def _on_sort_changed(self, _index: int) -> None:
+        self._save_view_preferences()
+        self.refresh_current()
+
+    def _on_compact_cards_toggled(self, _checked: bool) -> None:
+        self._save_view_preferences()
+        self.refresh_current()
+
+    def _save_view_preferences(self) -> None:
+        merged = load_settings()
+        merged["kanban_sort_mode"] = self._sort_combo.currentData() if self._sort_combo else "created"
+        merged["kanban_compact_cards"] = (
+            self._compact_cards_cb.isChecked() if self._compact_cards_cb else False
+        )
+        save_settings(merged)
+
+    def _notify_items_changed(self) -> None:
+        if self._on_items_changed:
+            self._on_items_changed()
+            return
+        self.refresh_current()
 
     def refresh_current(self) -> None:
         """Refresh with current scenario and search settings from parent window."""
@@ -1281,6 +1421,46 @@ class TodosPage(QWidget):
             self.refresh_items(scenario, search)
         else:
             self.refresh_items()
+
+    def _auto_escalate_emergency(self) -> None:
+        settings = load_settings()
+        if not settings.get("auto_escalate_emergency", True):
+            return
+        levels = _load_emergency_levels()
+        if not levels:
+            return
+        now = datetime.now(timezone.utc)
+        updated = False
+        with SessionLocal() as session:
+            items = (
+                session.query(Item)
+                .options(selectinload(Item.tags))
+                .filter(Item.deadline.isnot(None))
+                .all()
+            )
+            for item in items:
+                current_level = _level_from_tags(item.tags)
+                if not current_level:
+                    continue
+                target_level = _target_emergency_level(item.deadline, levels, now=now)
+                current_idx = _level_index(current_level, levels)
+                target_idx = _level_index(target_level, levels)
+                if target_idx is None or current_idx is None or target_idx <= current_idx:
+                    continue
+                for tag in list(item.tags):
+                    if tag.name.startswith(_LEVEL_PREFIX):
+                        item.tags.remove(tag)
+                tag_name = f"{_LEVEL_PREFIX}{target_level}"
+                tag = session.query(Tag).filter(Tag.name == tag_name).first()
+                if not tag:
+                    color = _level_color(target_level, levels) or "#d65c5c"
+                    tag = Tag(name=tag_name, color=color)
+                item.tags.append(tag)
+                updated = True
+            if updated:
+                session.commit()
+        if updated:
+            self.refresh_current()
 
     # ------------------------------------------------------------------
     # Time tracker
@@ -1408,7 +1588,7 @@ class TodosPage(QWidget):
         dialog = BatchEditDialog(selected_ids, self)
         if dialog.exec():
             self._clear_all_card_selections()
-            self.refresh_current()
+            self._notify_items_changed()
 
 
 class BatchEditDialog(QDialog):

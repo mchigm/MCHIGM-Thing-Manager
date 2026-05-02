@@ -5,9 +5,10 @@ Phase 1: General (theme, default scenario, notifications) and
          Data (backup/restore) tabs.
 """
 import shutil
+import sqlite3
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QThread, QUrl
 from PyQt6.QtGui import QDesktopServices
 
 from PyQt6.QtWidgets import (
@@ -32,9 +33,10 @@ from PyQt6.QtWidgets import (
 
 from src.mcp_client import MCPClientManager
 from src.calendar_sync import CalendarSyncManager, CalendarProvider
+from src.database.models import engine
 from src.i18n import tr
 from src.settings_store import load_settings, save_settings
-from src.updater import check_for_updates
+from src.ui.update_worker import UpdateCheckWorker
 from src.version import APP_VERSION
 
 
@@ -47,6 +49,7 @@ class SettingsWindow(QDialog):
         self.setMinimumSize(480, 360)
         self._settings = load_settings()
         self._model_edit = None
+        self._models_edit = None
         self._api_key_edit = None
         self._mcp_manager = MCPClientManager()
         self._mcp_server_edit = None
@@ -63,6 +66,8 @@ class SettingsWindow(QDialog):
         self._status_badge = None
         self._status_details = None
         self._emergency_levels_edit = None
+        self._auto_escalate_emergency_cb = None
+        self._timeline_hide_finished_cb = None
         self._language_combo = None
         self._auto_check_updates_cb = None
         self._auto_update_enabled_cb = None
@@ -70,6 +75,9 @@ class SettingsWindow(QDialog):
         self._update_repo_owner_edit = None
         self._update_repo_name_edit = None
         self._last_update_label = None
+        self._check_now_btn = None
+        self._update_check_thread: QThread | None = None
+        self._update_check_worker: UpdateCheckWorker | None = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -231,6 +239,14 @@ class SettingsWindow(QDialog):
         hint.setWordWrap(True)
         emergency_layout.addWidget(hint)
 
+        self._auto_escalate_emergency_cb = QCheckBox(
+            "Auto-escalate emergency levels as deadlines approach"
+        )
+        self._auto_escalate_emergency_cb.setChecked(
+            self._settings.get("auto_escalate_emergency", True)
+        )
+        emergency_layout.addWidget(self._auto_escalate_emergency_cb)
+
         layout.addWidget(emergency_box)
 
         # Notifications
@@ -241,6 +257,17 @@ class SettingsWindow(QDialog):
         notif_layout.addWidget(self._notif_deadline_cb)
 
         layout.addWidget(notif_box)
+
+        timeline_box = QGroupBox("Timeline")
+        timeline_layout = QVBoxLayout(timeline_box)
+        self._timeline_hide_finished_cb = QCheckBox(
+            "Hide finished (Done) items in Plan timeline by default"
+        )
+        self._timeline_hide_finished_cb.setChecked(
+            self._settings.get("timeline_hide_finished", False)
+        )
+        timeline_layout.addWidget(self._timeline_hide_finished_cb)
+        layout.addWidget(timeline_box)
 
         # Updates
         updates_box = QGroupBox("Updates")
@@ -268,9 +295,9 @@ class SettingsWindow(QDialog):
         updates_form.addRow("Repo Name:", self._update_repo_name_edit)
 
         check_row = QHBoxLayout()
-        check_now_btn = QPushButton("Check Latest Version")
-        check_now_btn.clicked.connect(self._check_updates_now)
-        check_row.addWidget(check_now_btn)
+        self._check_now_btn = QPushButton("Check Latest Version")
+        self._check_now_btn.clicked.connect(self._check_updates_now)
+        check_row.addWidget(self._check_now_btn)
         self._last_update_label = QLabel(self._build_update_status_text())
         self._last_update_label.setStyleSheet("color: #808090; font-size: 11px;")
         self._last_update_label.setWordWrap(True)
@@ -390,6 +417,18 @@ class SettingsWindow(QDialog):
         self._model_edit.setPlaceholderText("e.g., gpt-4o-mini, claude-3-haiku")
         self._model_edit.setText(self._settings.get("ai_model", ""))
         model_form.addRow("Model:", self._model_edit)
+
+        self._models_edit = QLineEdit()
+        self._models_edit.setPlaceholderText("e.g., gpt-4o-mini, claude-3-haiku, gemini-1.5-pro")
+        models = self._settings.get("ai_models", [])
+        if isinstance(models, list):
+            self._models_edit.setText(", ".join(str(model).strip() for model in models if str(model).strip()))
+        model_form.addRow("Draft Models:", self._models_edit)
+
+        models_hint = QLabel("Use comma-separated models. MEMO can generate multiple drafts at once for you to choose.")
+        models_hint.setWordWrap(True)
+        models_hint.setStyleSheet("color: #808090; font-size: 11px;")
+        model_form.addRow("", models_hint)
         layout.addWidget(model_box)
 
         creds_box = QGroupBox("Credentials")
@@ -397,7 +436,7 @@ class SettingsWindow(QDialog):
 
         self._api_key_edit = QLineEdit()
         self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self._api_key_edit.setPlaceholderText("API key (stored locally)")
+        self._api_key_edit.setPlaceholderText("API key (stored securely)")
         self._api_key_edit.setText(self._settings.get("ai_api_key", ""))
         creds_form.addRow("API Key:", self._api_key_edit)
         layout.addWidget(creds_box)
@@ -693,16 +732,50 @@ class SettingsWindow(QDialog):
         return f"Last check: {checked}"
 
     def _check_updates_now(self) -> None:
+        if self._update_check_thread is not None:
+            return
+
         owner = self._update_repo_owner_edit.text().strip() if self._update_repo_owner_edit else ""
         repo = self._update_repo_name_edit.text().strip() if self._update_repo_name_edit else ""
         include_prerelease = (
             self._update_prerelease_cb.isChecked() if self._update_prerelease_cb else False
         )
-        result = check_for_updates(
+
+        if self._check_now_btn:
+            self._check_now_btn.setEnabled(False)
+            self._check_now_btn.setText("Checking...")
+
+        self._update_check_thread = QThread(self)
+        self._update_check_worker = UpdateCheckWorker(
             current_version=APP_VERSION,
             owner=owner,
             repo=repo,
             include_prerelease=include_prerelease,
+        )
+        self._update_check_worker.moveToThread(self._update_check_thread)
+        self._update_check_thread.started.connect(self._update_check_worker.run)
+        self._update_check_worker.finished.connect(self._on_check_updates_result)
+        self._update_check_worker.finished.connect(self._cleanup_update_check_thread)
+        self._update_check_thread.start()
+
+    def _cleanup_update_check_thread(self, _) -> None:
+        if self._check_now_btn:
+            self._check_now_btn.setEnabled(True)
+            self._check_now_btn.setText("Check Latest Version")
+        if self._update_check_thread is not None:
+            self._update_check_thread.quit()
+            self._update_check_thread.wait()
+            self._update_check_thread.deleteLater()
+            self._update_check_thread = None
+        if self._update_check_worker is not None:
+            self._update_check_worker.deleteLater()
+            self._update_check_worker = None
+
+    def _on_check_updates_result(self, result) -> None:
+        owner = self._update_repo_owner_edit.text().strip() if self._update_repo_owner_edit else ""
+        repo = self._update_repo_name_edit.text().strip() if self._update_repo_name_edit else ""
+        include_prerelease = (
+            self._update_prerelease_cb.isChecked() if self._update_prerelease_cb else False
         )
         self._settings["last_update_check"] = result.checked_at
         self._settings["last_update_version"] = result.latest_version
@@ -776,11 +849,20 @@ class SettingsWindow(QDialog):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 try:
-                    shutil.copy2(src, self._db_path())
+                    src_path = Path(src).expanduser().resolve()
+                    dst_path = self._db_path().expanduser().resolve()
+                    if src_path == dst_path:
+                        raise ValueError("Selected backup file is the active database file.")
+
+                    engine.dispose()
+                    with sqlite3.connect(f"{src_path.as_uri()}?mode=ro", uri=True) as src_conn:
+                        with sqlite3.connect(dst_path) as dst_conn:
+                            src_conn.backup(dst_conn)
+                            dst_conn.commit()
                     QMessageBox.information(
                         self,
                         "Restore",
-                        "Database restored. Please restart the application.",
+                        "Database restored successfully. Please restart the application now.",
                     )
                 except Exception as exc:
                     QMessageBox.critical(self, "Restore Failed", str(exc))
@@ -811,9 +893,14 @@ class SettingsWindow(QDialog):
 
         if self._model_edit is not None and self._api_key_edit is not None:
             emergency_levels = self._parse_emergency_levels()
+            multi_models: list[str] = []
+            if self._models_edit:
+                raw = self._models_edit.text()
+                multi_models = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
             save_settings(
                 {
                     "ai_model": self._model_edit.text().strip(),
+                    "ai_models": multi_models,
                     "ai_api_key": self._api_key_edit.text().strip(),
                     "mcp_server_url": (self._mcp_server_edit.text().strip() if self._mcp_server_edit else ""),
                     "mcp_status": "connected" if self._mcp_manager.connected else "disconnected",
@@ -827,12 +914,22 @@ class SettingsWindow(QDialog):
                     "calendar_auto_sync": (self._calendar_auto_sync_cb.isChecked() if self._calendar_auto_sync_cb else True),
                     "calendar_sync_interval": sync_interval,
                     "emergency_levels": emergency_levels,
+                    "auto_escalate_emergency": (
+                        self._auto_escalate_emergency_cb.isChecked()
+                        if self._auto_escalate_emergency_cb
+                        else True
+                    ),
                     # Performance settings
                     "memory_limit_mb": (self._memory_limit_spin.value() if hasattr(self, '_memory_limit_spin') else 512),
                     "cpu_policy": cpu_policy,
                     "gpu_acceleration": (self._gpu_enabled_cb.isChecked() if hasattr(self, '_gpu_enabled_cb') else True),
                     "buffer_time_per_hour": (self._buffer_time_spin.value() if hasattr(self, '_buffer_time_spin') else 45),
                     "language": (self._language_combo.currentData() if self._language_combo else "en"),
+                    "timeline_hide_finished": (
+                        self._timeline_hide_finished_cb.isChecked()
+                        if self._timeline_hide_finished_cb
+                        else False
+                    ),
                     "auto_check_updates": (
                         self._auto_check_updates_cb.isChecked() if self._auto_check_updates_cb else True
                     ),

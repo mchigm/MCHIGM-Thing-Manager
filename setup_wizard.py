@@ -33,6 +33,48 @@ except ImportError:
     HAS_QT = False
 
 
+def _validate_uninstall_target(raw_path: str) -> Path:
+    """Validate uninstall target to avoid deleting unrelated/system directories."""
+    if not raw_path or not raw_path.strip():
+        raise ValueError("Installation directory is required for uninstall.")
+
+    target = Path(raw_path).expanduser().resolve()
+    if str(target) == target.anchor:
+        raise ValueError("Refusing to delete filesystem root.")
+
+    protected_paths = {
+        Path.home().resolve(),
+        Path("/").resolve(),
+    }
+    if sys.platform == "darwin":
+        protected_paths.update(
+            {
+                Path("/Applications").resolve(),
+                Path("/System").resolve(),
+                Path("/Library").resolve(),
+                Path("/usr").resolve(),
+                Path("/bin").resolve(),
+                Path("/sbin").resolve(),
+                Path("/opt").resolve(),
+            }
+        )
+    if sys.platform == "win32":
+        for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "WINDIR", "SYSTEMROOT"):
+            value = os.environ.get(env_name)
+            if value:
+                protected_paths.add(Path(value).expanduser().resolve())
+
+    if target in protected_paths:
+        raise ValueError(f"Refusing to delete protected directory: {target}")
+
+    name = target.name.lower()
+    if "mchigm" not in name and "thing manager" not in name:
+        raise ValueError(
+            "Refusing to delete a directory that does not look like a MCHIGM Thing Manager installation."
+        )
+    return target
+
+
 class WorkerThread(QThread):
     """Worker thread for long-running operations"""
     progress = pyqtSignal(str)
@@ -156,10 +198,14 @@ class WorkerThread(QThread):
                 self.progress.emit(f"Removed data directory: {data_dir}")
 
         # Remove installation directory
-        if install_dir and os.path.exists(install_dir):
+        if install_dir:
             try:
-                shutil.rmtree(install_dir)
-                self.progress.emit(f"Removed installation directory: {install_dir}")
+                target = _validate_uninstall_target(install_dir)
+                if target.exists():
+                    shutil.rmtree(target)
+                    self.progress.emit(f"Removed installation directory: {target}")
+                else:
+                    self.progress.emit(f"Installation directory not found: {target}")
             except Exception as e:
                 self.progress.emit(f"Warning: Could not remove {install_dir}: {e}")
 
@@ -180,7 +226,7 @@ class SetupWizard(QMainWindow):
             self.install_dir = os.path.join(os.environ.get('PROGRAMFILES', 'C:\\Program Files'),
                                            'MCHIGM Thing Manager')
         else:
-            self.install_dir = '/Applications'
+            self.install_dir = '/Applications/MCHIGM Thing Manager.app'
 
         self.exe_source = None
 
@@ -476,8 +522,15 @@ class SetupWizard(QMainWindow):
 
     def run_uninstall(self):
         """Run uninstallation"""
+        install_dir_raw = self.install_dir_input.text().strip()
+        try:
+            install_target = _validate_uninstall_target(install_dir_raw)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid Install Path", str(exc))
+            return
+
         reply = QMessageBox.question(self, "Confirm Uninstall",
-                                     "Are you sure you want to uninstall MCHIGM Thing Manager?",
+                                     f"Are you sure you want to uninstall MCHIGM Thing Manager from:\n{install_target}",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 
         if reply == QMessageBox.StandardButton.Yes:
@@ -487,7 +540,7 @@ class SetupWizard(QMainWindow):
             self.worker = WorkerThread(
                 "uninstall",
                 remove_data=self.remove_data_cb.isChecked(),
-                install_dir=self.install_dir_input.text()
+                install_dir=str(install_target)
             )
             self.worker.progress.connect(self.log)
             self.worker.finished.connect(self.on_operation_finished)
