@@ -1,32 +1,37 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for MCHIGM Thing Manager
-Builds executables for Windows and macOS
 
-Usage:
-    pyinstaller MCHIGM-Thing-Manager.spec
+MCHIGM-Thing-Manager.spec
+
+Author: MCHIGM
+
+Pyinstaller spec file for MCHIGM Thing Manager, builds executables for Windows and macOS.
+
+Last Modified: 2025-05-03 (YYYY-MM-DD)
+
 """
 
 import sys
+
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
 # Collect all submodules for packages that use dynamic imports
 hiddenimports = [
-    'PyQt6.QtCore',
-    'PyQt6.QtGui',
-    'PyQt6.QtWidgets',
-    'sqlalchemy.sql.default_comparator',
-    'sqlalchemy.ext.baked',
-    'litellm',
+    "PyQt6.QtCore",
+    "PyQt6.QtGui",
+    "PyQt6.QtWidgets",
+    "sqlalchemy.sql.default_comparator",
+    "sqlalchemy.ext.baked",
+    "litellm",
 ]
 
 # Collect data files if any
 datas = []
 
 a = Analysis(
-    ['main.py'],
+    ["main.py"],
     pathex=[],
     binaries=[],
     datas=datas,
@@ -35,14 +40,14 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'matplotlib',
-        'numpy',
-        'scipy',
-        'pandas',
-        'pytest',
-        'tk',
-        'tcl',
-        '_tkinter',
+        "matplotlib",
+        "numpy",
+        "scipy",
+        "pandas",
+        "pytest",
+        "tk",
+        "tcl",
+        "_tkinter",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -59,7 +64,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='MCHIGM-Thing-Manager',
+    name="MCHIGM-Thing-Manager",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -76,16 +81,16 @@ exe = EXE(
 )
 
 # macOS app bundle configuration
-if sys.platform == 'darwin':
+if sys.platform == "darwin":
     app = BUNDLE(
         exe,
-        name='MCHIGM Thing Manager.app',
+        name="MCHIGM Thing Manager.app",
         icon=None,  # Add icon file path here if you have one (e.g., 'icon.icns')
-        bundle_identifier='com.mchigm.thing-manager',
+        bundle_identifier="com.mchigm.thing-manager",
         info_plist={
-            'NSPrincipalClass': 'NSApplication',
-            'NSHighResolutionCapable': True,
-            'CFBundleShortVersionString': '1.0.0',
-            'CFBundleVersion': '1.0.0',
+            "NSPrincipalClass": "NSApplication",
+            "NSHighResolutionCapable": True,
+            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleVersion": "1.0.0",
         },
     )
