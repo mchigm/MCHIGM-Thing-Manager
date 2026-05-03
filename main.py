@@ -1,8 +1,11 @@
 """
-Entry point for MCHIGM Thing Manager.
 
-Usage:
-    python main.py
+main.py
+
+Author: MCHIGM
+
+Last Modified: 2025-05-02 (YYYY-MM-DD)
+
 """
 
 import sys
