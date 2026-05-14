@@ -226,8 +226,13 @@ jobs:
           notes = os.environ.get("RELEASE_NOTES", "").rstrip()
           repository = os.environ.get("REPOSITORY", "").strip()
           commit_sha = os.environ.get("COMMIT_SHA", "").strip()
-          changelog = Path("CHANGELOG").read_text(encoding="utf-8").strip()
-          changelog_url = f"https://github.com/{repository}/blob/{commit_sha}/CHANGELOG" if repository and commit_sha else ""
+          changelog_path = next(
+              (path for path in (Path("CHANGELOG.md"), Path("CHANGELOG")) if path.is_file()),
+              None,
+          )
+          changelog = changelog_path.read_text(encoding="utf-8").strip() if changelog_path else ""
+          changelog_ref = changelog_path.name if changelog_path else "CHANGELOG.md"
+          changelog_url = f"https://github.com/{repository}/blob/{commit_sha}/{changelog_ref}" if repository and commit_sha and changelog_path else ""
 
           lines = [
               f"# Release {version}",
@@ -236,7 +241,7 @@ jobs:
               "",
               f"Source: [CHANGELOG]({changelog_url})" if changelog_url else "Source: CHANGELOG",
               "",
-              notes if notes else changelog,
+              notes if notes else (changelog or "Release assets and installation packages are listed below."),
               "",
               "## Installation",
               "",

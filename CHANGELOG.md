@@ -1,0 +1,22 @@
+202604152123: Initiated CHANGELOG
+
+CHANGELOG: - Nouns appearing in this file
+Change: Adjustment made
+Decision: Changes made
+Final: Final decision made
+Debug: Experiment made
+Manual: Content made
+
+Fix: Solving issue - Appears in 'What's new' section (usually the text to describe the update)
+Patch: Debugging
+Peek: Preview feature
+Pre: Pre major update
+Preview: Add new feature
+Release: Major update
+Update: Major change
+
+Git: - The following words + number = Git commit messages
+Update: new update
+Fixed: problem solved
+
+Removed Herobrine
