@@ -199,7 +199,7 @@ jobs:
             "MCHIGM-Thing-Manager-macOS.zip"
             "MCHIGM-Thing-Manager-*.pkg"
             "MCHIGM-Thing-Manager-*.AppImage"
-            "MCHIGM-Thing-Manager-Linux.tar.gz"
+            "MCHIGM-Thing-Manager-*-Linux.tar.gz"
           )
 
           for pattern in "${expected_files[@]}"; do
