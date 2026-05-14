@@ -134,6 +134,7 @@ jobs:
         with:
           name: MCHIGM-Thing-Manager-Linux
           path: |
+            installer_output/MCHIGM-Thing-Manager-*-x86_64.AppImage
             installer_output/MCHIGM-Thing-Manager-*-Linux.tar.gz
           if-no-files-found: error
 
@@ -201,8 +202,9 @@ jobs:
               "- Portable: `MCHIGM-Thing-Manager-macOS.zip`",
               "",
               "### Linux",
+              "- Recommended: `MCHIGM-Thing-Manager-*.AppImage`",
               "- Portable archive: `MCHIGM-Thing-Manager-Linux.tar.gz`",
-          ]
+            ]
 
           if notes:
               lines.extend(["", "## Release Notes", "", notes])
@@ -221,6 +223,7 @@ jobs:
             ./artifacts/windows/*.exe
             ./artifacts/macos/*.zip
             ./artifacts/macos/*.pkg
+            ./artifacts/linux/*.AppImage
             ./artifacts/linux/*.tar.gz
           draft: false
           prerelease: false

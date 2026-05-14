@@ -65,3 +65,17 @@ def test_fetch_json_uses_certifi_ca_bundle():
     assert payload == {}
     create_context.assert_called_once_with(cafile="/bundle/cacert.pem")
     assert mock_urlopen.call_args.kwargs["context"] == "CTX"
+
+
+def test_asset_download_url_prefers_linux_appimage():
+    release = {
+        "assets": [
+            {"name": "thing-manager.tar.gz", "browser_download_url": "https://example.com/archive"},
+            {"name": "thing-manager-x86_64.AppImage", "browser_download_url": "https://example.com/appimage"},
+        ]
+    }
+
+    with patch.object(updater.platform, "system", return_value="Linux"):
+        download_url = updater._asset_download_url(release)
+
+    assert download_url == "https://example.com/appimage"

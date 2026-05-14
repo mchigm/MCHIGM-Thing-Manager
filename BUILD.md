@@ -20,7 +20,7 @@ The application uses PyInstaller to create standalone executables that bundle Py
 
 ### For Linux
 - Python 3.8 or higher
-- A recent Ubuntu/Debian-compatible system
+- A recent Ubuntu/Debian-compatible system for building
 - Build essentials and Qt runtime libraries (the GitHub Action installs the minimum packages automatically)
 
 ## Quick Start
@@ -55,7 +55,8 @@ The application uses PyInstaller to create standalone executables that bundle Py
    ```bash
    ./build_linux.sh
    ```
-4. The portable archive will be created at `installer_output/MCHIGM-Thing-Manager-<version>-Linux.tar.gz`
+4. The recommended AppImage will be created at `installer_output/MCHIGM-Thing-Manager-<version>-x86_64.AppImage`
+5. The fallback portable archive will be created at `installer_output/MCHIGM-Thing-Manager-<version>-Linux.tar.gz`
 
 ### Building Installers
 
@@ -239,7 +240,12 @@ The wizard requires PyQt6 and provides a user-friendly GUI for all installation 
 
 ### Linux Distribution
 
-1. **Portable Archive**:
+1. **AppImage (Recommended)**:
+   - Run `./build_linux.sh`
+   - Share `installer_output/MCHIGM-Thing-Manager-<version>-x86_64.AppImage`
+   - Users can run it on most x86_64 Linux distros without installing the app
+
+2. **Portable Archive**:
    - Run `./build_linux.sh`
    - Share `installer_output/MCHIGM-Thing-Manager-<version>-Linux.tar.gz`
    - Users extract the archive and run `run.sh`
@@ -256,13 +262,13 @@ The wizard requires PyQt6 and provides a user-friendly GUI for all installation 
 | Code signing support | ✓ | ✓ |
 | Automatic updates | Via script | Via script |
 
-| Feature | Linux (tar.gz) |
-|---------|----------------|
-| Native UI | ✓ |
-| Portable archive | ✓ |
-| Desktop integration | Manual |
-| Data directory setup | ✓ |
-| Uninstall with data cleanup | Manual |
+| Feature | Linux (AppImage) | Linux (tar.gz) |
+|---------|------------------|----------------|
+| Native UI | ✓ | ✓ |
+| Portable package | ✓ | ✓ |
+| Desktop integration | Automatic | Manual |
+| Data directory setup | ✓ | ✓ |
+| Uninstall with data cleanup | Manual | Manual |
 
 ## Troubleshooting
 
