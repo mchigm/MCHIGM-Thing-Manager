@@ -65,25 +65,32 @@ APPDIR="installer_output/AppDir"
 APPIMAGE_TOOL="installer_output/appimagetool.AppImage"
 APPIMAGE_OUTPUT="installer_output/MCHIGM-Thing-Manager-${SAFE_VERSION}-x86_64.AppImage"
 DESKTOP_NAME="mchigm-thing-manager"
+ICON_SOURCE="icon.png"
 
 rm -rf "${APPDIR}"
 mkdir -p "${APPDIR}/usr/bin"
 mkdir -p "${APPDIR}/usr/share/applications"
 mkdir -p "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
 
+if [ ! -f "${ICON_SOURCE}" ]; then
+    echo "Error: AppImage icon not found at ${ICON_SOURCE}"
+    exit 1
+fi
+
 cp dist/MCHIGM-Thing-Manager "${APPDIR}/usr/bin/"
 
-if [ -f icon.png ]; then
-    cp icon.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${DESKTOP_NAME}.png"
-fi
+cp "${ICON_SOURCE}" "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${DESKTOP_NAME}.png"
+cp "${ICON_SOURCE}" "${APPDIR}/${DESKTOP_NAME}.png"
+cp "${ICON_SOURCE}" "${APPDIR}/.DirIcon"
 
 cat > "${APPDIR}/${DESKTOP_NAME}.desktop" << EOF
 [Desktop Entry]
 Type=Application
 Name=MCHIGM Thing Manager
+Icon=${DESKTOP_NAME}
 Exec=MCHIGM-Thing-Manager %U
 Terminal=false
-Categories=Office;Utility;
+Categories=Office;
 StartupNotify=true
 EOF
 
