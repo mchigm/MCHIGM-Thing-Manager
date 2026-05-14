@@ -174,6 +174,41 @@ jobs:
           name: MCHIGM-Thing-Manager-Linux
           path: ./artifacts/linux
 
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf release-assets
+          mkdir -p release-assets
+
+          for dir in ./artifacts/windows ./artifacts/macos ./artifacts/linux; do
+            while IFS= read -r file; do
+              cp "$file" "release-assets/$(basename "$file")"
+            done < <(find "$dir" -type f \( \
+              -name '*.exe' -o \
+              -name '*.pkg' -o \
+              -name '*.zip' -o \
+              -name '*.AppImage' -o \
+              -name '*.tar.gz' \
+            \))
+          done
+
+          expected_files=(
+            "MCHIGM-Thing-Manager-Setup.exe"
+            "MCHIGM-Thing-Manager.exe"
+            "MCHIGM-Thing-Manager-macOS.zip"
+            "MCHIGM-Thing-Manager-*.pkg"
+            "MCHIGM-Thing-Manager-*.AppImage"
+            "MCHIGM-Thing-Manager-Linux.tar.gz"
+          )
+
+          for pattern in "${expected_files[@]}"; do
+            if ! compgen -G "release-assets/${pattern}" > /dev/null; then
+              echo "Missing expected release asset matching: ${pattern}" >&2
+              exit 1
+            fi
+          done
+
       - name: Prepare release body
         id: body
         shell: bash
@@ -190,6 +225,10 @@ jobs:
 
           lines = [
               f"# Release {version}",
+              "",
+              "## What's New",
+              "",
+              notes if notes else "Release assets and installation packages are listed below.",
               "",
               "## Installation",
               "",
@@ -220,11 +259,7 @@ jobs:
           name: ${{ steps.metadata.outputs.release_version }}
           target_commitish: ${{ github.sha }}
           files: |
-            ./artifacts/windows/*.exe
-            ./artifacts/macos/*.zip
-            ./artifacts/macos/*.pkg
-            ./artifacts/linux/*.AppImage
-            ./artifacts/linux/*.tar.gz
+            ./release-assets/*
           draft: false
           prerelease: false
           generate_release_notes: false
