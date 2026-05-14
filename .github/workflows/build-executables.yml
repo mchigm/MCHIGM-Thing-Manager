@@ -29,10 +29,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -55,7 +55,7 @@ jobs:
         shell: pwsh
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: MCHIGM-Thing-Manager-Windows
           path: |
@@ -69,10 +69,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -97,7 +97,7 @@ jobs:
           zip -r -y "MCHIGM-Thing-Manager-macOS.zip" "MCHIGM Thing Manager.app"
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: MCHIGM-Thing-Manager-macOS
           path: |
@@ -111,10 +111,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -130,7 +130,7 @@ jobs:
           ./build_linux.sh
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: MCHIGM-Thing-Manager-Linux
           path: |
@@ -156,19 +156,19 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: MCHIGM-Thing-Manager-Windows
           path: ./artifacts/windows
 
       - name: Download macOS artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: MCHIGM-Thing-Manager-macOS
           path: ./artifacts/macos
 
       - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: MCHIGM-Thing-Manager-Linux
           path: ./artifacts/linux
@@ -212,7 +212,7 @@ jobs:
           echo "body_path=release-body.md" >> "${GITHUB_OUTPUT}"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_id) || steps.metadata.outputs.release_version }}
           name: ${{ steps.metadata.outputs.release_version }}

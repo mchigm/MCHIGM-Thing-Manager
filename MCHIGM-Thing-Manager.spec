@@ -28,7 +28,7 @@ hiddenimports = [
 ]
 
 # Collect data files if any
-datas = []
+datas = collect_data_files("certifi")
 
 a = Analysis(
     ["main.py"],

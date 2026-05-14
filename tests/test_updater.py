@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import src.updater as updater
 
@@ -49,3 +49,19 @@ def test_check_for_updates_failure():
     assert result.has_update is False
     assert "boom" in result.message
 
+
+def test_fetch_json_uses_certifi_ca_bundle():
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = b"{}"
+    response.__exit__.return_value = False
+
+    with (
+        patch.object(updater.certifi, "where", return_value="/bundle/cacert.pem"),
+        patch.object(updater.ssl, "create_default_context", return_value="CTX") as create_context,
+        patch.object(updater, "urlopen", return_value=response) as mock_urlopen,
+    ):
+        payload = updater._fetch_json("https://example.com/releases/latest")
+
+    assert payload == {}
+    create_context.assert_called_once_with(cafile="/bundle/cacert.pem")
+    assert mock_urlopen.call_args.kwargs["context"] == "CTX"

@@ -7,10 +7,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import ssl
 import platform
 import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+try:
+    import certifi
+except ImportError:  # pragma: no cover - optional runtime dependency
+    certifi = None
 
 _VERSION_RE = re.compile(r"^v?(?P<major>\d+)(?:\.(?P<minor>\d+))?(?:\.(?P<patch>\d+))?")
 
@@ -42,6 +48,12 @@ def is_newer_version(current_version: str, latest_version: str) -> bool:
     return _parse_version(latest_version) > _parse_version(current_version)
 
 
+def _ssl_context() -> ssl.SSLContext:
+    if certifi is not None:
+        return ssl.create_default_context(cafile=certifi.where())
+    return ssl.create_default_context()
+
+
 def _fetch_json(url: str, timeout: int = 8) -> dict | list:
     req = Request(
         url,
@@ -51,7 +63,7 @@ def _fetch_json(url: str, timeout: int = 8) -> dict | list:
         },
     )
     try:
-        with urlopen(req, timeout=timeout) as response:
+        with urlopen(req, timeout=timeout, context=_ssl_context()) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         raise RuntimeError(f"Update server error ({exc.code}).") from exc
@@ -175,4 +187,3 @@ def check_for_updates(
         download_url=download_url,
         checked_at=checked_at,
     )
-
