@@ -66,6 +66,8 @@ class TestLoadSettings:
         with _patch_path(tmp_path):
             result = ss.load_settings()
         assert result["language"] == "en"
+        assert result["ai_provider"] == "openai"
+        assert result["ai_base_url"] == ""
         assert result["auto_check_updates"] is True
         assert result["auto_update_enabled"] is False
         assert result["update_include_prerelease"] is False
@@ -112,6 +114,8 @@ class TestSaveSettings:
         payload = {
             "ai_model": "claude-3-opus",
             "ai_api_key": "sk-test",
+            "ai_provider": "anthropic",
+            "ai_base_url": "https://example.invalid/v1",
             "mcp_server_url": "http://localhost:8080",
             "calendar_provider": "google",
         }

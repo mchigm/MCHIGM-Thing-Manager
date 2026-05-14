@@ -34,10 +34,24 @@ from PyQt6.QtWidgets import (
 from src.mcp_client import MCPClientManager
 from src.calendar_sync import CalendarSyncManager, CalendarProvider
 from src.database.models import engine
-from src.i18n import tr
+from src.i18n import language_choices, tr
 from src.settings_store import load_settings, save_settings
 from src.ui.update_worker import UpdateCheckWorker
 from src.version import APP_VERSION
+
+_AI_PROVIDER_CHOICES = [
+    ("openai", tr("ai.provider.openai", "OpenAI / GPT")),
+    ("anthropic", tr("ai.provider.anthropic", "Anthropic / Claude")),
+    ("gemini", tr("ai.provider.gemini", "Google / Gemini")),
+    ("openrouter", tr("ai.provider.openrouter", "OpenRouter")),
+    ("local", tr("ai.provider.local", "Local / Open-source")),
+    ("custom", tr("ai.provider.custom", "OpenAI-compatible / Custom")),
+]
+
+_AI_PROVIDER_DEFAULT_BASE_URLS = {
+    "openrouter": "https://openrouter.ai/api/v1",
+    "local": "http://localhost:11434/v1",
+}
 
 
 class SettingsWindow(QDialog):
@@ -50,6 +64,8 @@ class SettingsWindow(QDialog):
         self._settings = load_settings()
         self._model_edit = None
         self._models_edit = None
+        self._ai_provider_combo = None
+        self._ai_base_url_edit = None
         self._api_key_edit = None
         self._mcp_manager = MCPClientManager()
         self._mcp_server_edit = None
@@ -91,13 +107,13 @@ class SettingsWindow(QDialog):
         root.addWidget(self._build_status_banner())
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_general_tab(), "General")
-        tabs.addTab(self._build_data_tab(), "Data Management")
-        tabs.addTab(self._build_ai_tab(), "AI Agent")
-        tabs.addTab(self._build_mcp_tab(), "MCP Client")
-        tabs.addTab(self._build_calendar_tab(), "Calendar Sync")
-        tabs.addTab(self._build_hotkeys_tab(), "Hotkeys")
-        tabs.addTab(self._build_performance_tab(), "Performance")
+        tabs.addTab(self._build_general_tab(), tr("settings.general", "General"))
+        tabs.addTab(self._build_data_tab(), tr("settings.data", "Data Management"))
+        tabs.addTab(self._build_ai_tab(), tr("settings.ai", "AI Agent"))
+        tabs.addTab(self._build_mcp_tab(), tr("settings.mcp", "MCP Client"))
+        tabs.addTab(self._build_calendar_tab(), tr("settings.calendar", "Calendar Sync"))
+        tabs.addTab(self._build_hotkeys_tab(), tr("settings.hotkeys", "Hotkeys"))
+        tabs.addTab(self._build_performance_tab(), tr("settings.performance", "Performance"))
         root.addWidget(tabs, stretch=1)
 
         buttons = QDialogButtonBox(
@@ -198,11 +214,20 @@ class SettingsWindow(QDialog):
         appearance_form.addRow("Theme:", self._theme_combo)
 
         self._language_combo = QComboBox()
-        self._language_combo.addItem(tr("language.english", "English"), "en")
-        self._language_combo.addItem(tr("language.chinese", "中文（简体）"), "zh")
+        for value, label in language_choices():
+            self._language_combo.addItem(label, value)
         current_lang = str(self._settings.get("language", "en")).lower()
-        self._language_combo.setCurrentIndex(1 if current_lang.startswith("zh") else 0)
+        idx = self._language_combo.findData(current_lang)
+        if idx < 0 and current_lang.startswith("zh"):
+            idx = self._language_combo.findData("zh")
+        if idx < 0:
+            idx = self._language_combo.findData("en")
+        self._language_combo.setCurrentIndex(max(idx, 0))
         appearance_form.addRow(tr("settings.language", "Language:"), self._language_combo)
+        language_hint = QLabel(tr("settings.restart_hint", "Restart the app to apply language changes everywhere."))
+        language_hint.setWordWrap(True)
+        language_hint.setStyleSheet("color: #808090; font-size: 11px;")
+        appearance_form.addRow("", language_hint)
 
         layout.addWidget(appearance_box)
 
@@ -410,16 +435,41 @@ class SettingsWindow(QDialog):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
+        provider_box = QGroupBox("Provider")
+        provider_form = QFormLayout(provider_box)
+
+        self._ai_provider_combo = QComboBox()
+        for value, label in _AI_PROVIDER_CHOICES:
+            self._ai_provider_combo.addItem(label, value)
+        current_provider = str(self._settings.get("ai_provider", "openai")).lower()
+        provider_idx = self._ai_provider_combo.findData(current_provider)
+        if provider_idx < 0:
+            provider_idx = self._ai_provider_combo.findData("openai")
+        self._ai_provider_combo.setCurrentIndex(max(provider_idx, 0))
+        self._ai_provider_combo.currentIndexChanged.connect(self._on_ai_provider_changed)
+        provider_form.addRow(tr("ai.provider", "Provider:"), self._ai_provider_combo)
+
+        self._ai_base_url_edit = QLineEdit()
+        self._ai_base_url_edit.setText(self._settings.get("ai_base_url", ""))
+        self._ai_base_url_edit.setPlaceholderText("https://openrouter.ai/api/v1")
+        provider_form.addRow(tr("ai.base_url", "Base URL:"), self._ai_base_url_edit)
+
+        base_hint = QLabel(tr("ai.base_url.hint", "Leave blank for hosted APIs; enter an OpenAI-compatible endpoint for OpenRouter or local models."))
+        base_hint.setWordWrap(True)
+        base_hint.setStyleSheet("color: #808090; font-size: 11px;")
+        provider_form.addRow("", base_hint)
+        layout.addWidget(provider_box)
+
         model_box = QGroupBox("Model Selection")
         model_form = QFormLayout(model_box)
 
         self._model_edit = QLineEdit()
-        self._model_edit.setPlaceholderText("e.g., gpt-4o-mini, claude-3-haiku")
+        self._model_edit.setPlaceholderText(tr("ai.model.help", "Examples: gpt-4o-mini, claude-3-5-sonnet-latest, gemini/gemini-1.5-pro, openrouter/deepseek/deepseek-chat"))
         self._model_edit.setText(self._settings.get("ai_model", ""))
         model_form.addRow("Model:", self._model_edit)
 
         self._models_edit = QLineEdit()
-        self._models_edit.setPlaceholderText("e.g., gpt-4o-mini, claude-3-haiku, gemini-1.5-pro")
+        self._models_edit.setPlaceholderText(tr("ai.model.help", "Examples: gpt-4o-mini, claude-3-5-sonnet-latest, gemini/gemini-1.5-pro, openrouter/deepseek/deepseek-chat"))
         models = self._settings.get("ai_models", [])
         if isinstance(models, list):
             self._models_edit.setText(", ".join(str(model).strip() for model in models if str(model).strip()))
@@ -447,8 +497,23 @@ class SettingsWindow(QDialog):
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #808090; font-size: 11px;")
         layout.addWidget(hint)
+        self._on_ai_provider_changed(self._ai_provider_combo.currentIndex() if self._ai_provider_combo else 0)
         layout.addStretch()
         return tab
+
+    def _on_ai_provider_changed(self, index: int) -> None:
+        if not self._ai_provider_combo or not self._ai_base_url_edit:
+            return
+        provider = str(self._ai_provider_combo.itemData(index) or "openai").strip().lower()
+        default_base_url = _AI_PROVIDER_DEFAULT_BASE_URLS.get(provider, "")
+        if not self._ai_base_url_edit.text().strip() and default_base_url:
+            self._ai_base_url_edit.setText(default_base_url)
+        if provider == "openrouter":
+            self._ai_base_url_edit.setPlaceholderText("https://openrouter.ai/api/v1")
+        elif provider == "local":
+            self._ai_base_url_edit.setPlaceholderText("http://localhost:11434/v1")
+        else:
+            self._ai_base_url_edit.setPlaceholderText("Optional for hosted APIs")
 
     # ------------------------------------------------------------------
     # MCP Client tab
@@ -901,6 +966,12 @@ class SettingsWindow(QDialog):
                 {
                     "ai_model": self._model_edit.text().strip(),
                     "ai_models": multi_models,
+                    "ai_provider": (
+                        str(self._ai_provider_combo.currentData()) if self._ai_provider_combo else "openai"
+                    ),
+                    "ai_base_url": (
+                        self._ai_base_url_edit.text().strip() if self._ai_base_url_edit else ""
+                    ),
                     "ai_api_key": self._api_key_edit.text().strip(),
                     "mcp_server_url": (self._mcp_server_edit.text().strip() if self._mcp_server_edit else ""),
                     "mcp_status": "connected" if self._mcp_manager.connected else "disconnected",

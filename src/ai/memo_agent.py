@@ -137,24 +137,64 @@ def _fallback_items(text: str) -> Tuple[str, List[GeneratedItem]]:
     return ("AI unavailable; saved as a Note in Backlog.", [item])
 
 
-def call_memo_agent(user_text: str, model: str, api_key: str) -> Tuple[str, List[GeneratedItem]]:
+def _provider_prefix(provider: str) -> str:
+    norm = provider.strip().lower()
+    if norm in {"anthropic", "claude"}:
+        return "anthropic"
+    if norm in {"gemini", "google"}:
+        return "gemini"
+    if norm == "openrouter":
+        return "openrouter"
+    return ""
+
+
+def _normalize_model(provider: str, model: str) -> str:
+    value = model.strip()
+    if not value:
+        return value
+    prefix = _provider_prefix(provider)
+    if not prefix or value.startswith(f"{prefix}/") or "/" in value:
+        return value
+    return f"{prefix}/{value}"
+
+
+def _supports_keyless_api(base_url: str) -> bool:
+    return bool(base_url.strip())
+
+
+def call_memo_agent(
+    user_text: str,
+    model: str,
+    api_key: str,
+    provider: str = "",
+    base_url: str = "",
+) -> Tuple[str, List[GeneratedItem]]:
     """
     Invoke the LLM (if configured) and return the AI reply plus parsed items.
 
     Falls back to a deterministic stub when litellm or credentials are missing.
     """
-    if not litellm or not api_key or not model:
+    if not litellm or not model:
+        return _fallback_items(user_text)
+    if not api_key and not _supports_keyless_api(base_url):
         return _fallback_items(user_text)
 
     try:
-        response = litellm.completion(
-            model=model,
-            api_key=api_key,
-            messages=[
+        normalized_model = _normalize_model(provider, model)
+        completion_kwargs = {
+            "model": normalized_model,
+            "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_text},
             ],
-            temperature=0.2,
+            "temperature": 0.2,
+        }
+        if api_key:
+            completion_kwargs["api_key"] = api_key
+        if base_url.strip():
+            completion_kwargs["api_base"] = base_url.strip()
+        response = litellm.completion(
+            **completion_kwargs,
         )
         content = response.choices[0]["message"]["content"]  # type: ignore[index]
         json_block = _extract_json_block(content)

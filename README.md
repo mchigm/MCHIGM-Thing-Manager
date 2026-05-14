@@ -28,11 +28,12 @@ an `Item` in the database, filtered by Type, Status, Time, Scenario, and Tags.
 - **Resizable Layout**: Adjust the splitter between calendar and sidebar to optimize your workspace
 
 ### Global Features
-- **Localization**: English and Simplified Chinese language support (Settings → General → Language)
+- **Localization**: English and Simplified Chinese language support, plus system-default locale follow mode (Settings → General → Language)
 - **Scenario Filtering**: Filter items across all pages by workspace (School, Work, Personal, or All)
 - **Omni-Search**: Search items by title, description, tags, or status
 - **Hotkeys**: Quick navigation (Ctrl+1-4 for pages, Ctrl+Space for quick capture)
 - **Item Details Dialog**: Consistent interface for viewing and editing any item, accessible from kanban cards and timetable tasks
+- **Link Handling**: Clickable web/file/app links in item details, with local path and scheme support
 - **Emergency Levels**: Configure custom urgency levels in Settings; assign them to items to surface colored emphasis on Kanban cards
 - **Roadmap Period Filter**: Plan page supports period-based filtering with overlap/inside-only modes
 - **Workload Buffer Curve**: Plan duration and timeline bar length are based on expected time + non-linear workload-adjusted buffer
@@ -79,9 +80,9 @@ Default scenarios, tags, and a handful of sample items are seeded on first launc
 the Kanban and Timetable views have data to display.
 
 ### AI (optional)
-- Open **Settings → AI Agent** to set your model name (e.g., `gpt-4o-mini`, `claude-3-haiku`)
-  and API key (stored locally at `~/.mchigm_thing_manager/settings.json`).
-- Without a key, the MEMO page will still capture your text as a Backlog note.
+- Open **Settings → AI Agent** to choose a provider preset, model name, optional base URL, and API key.
+- Supported presets include OpenAI/GPT, Anthropic/Claude, Google/Gemini, OpenRouter, and OpenAI-compatible local servers.
+- Without a key and compatible endpoint, the MEMO page will still capture your text as a Backlog note.
 - MEMO also includes an **Install CLI** action to install OpenClaw CLI from inside the app.
 
 ### MCP Client (beta)

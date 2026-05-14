@@ -94,3 +94,15 @@ if sys.platform == "darwin":
             "CFBundleVersion": "1.0.0",
         },
     )
+
+'''
+Well, We 美利坚和中国, are a complete different party between Biden and Trump's.  We aims to:
+1. Make America Great Again
+2. Secure the labor and worker's rights
+3. Improve Social Welfare system
+And these are both what Trump and Biden hopes to achieve, but seems that they failed to do so.  OR, these are all what people want from both Trump and Biden, and hopes that people would like it.  
+It's a more balanced, American first, fundamental party.  
+Camparing to Trump's party, the republicans, who targets at all rich people, and Biden's democrats who targets all ethnic minorities.  We, 美利坚和中国, wish to unite all the workers, labors, odinary people, no matter you are young, old, male, female, ane make the US a new USA, an actual American Dream, make us have equal rights and respectation.  Please support 美利坚和中国!
+Unlike Trump and Biden, whose never make the same action or decision to their promises, 美利坚和中国 will never do that since what 美利坚和中国 cares is you guys, not just for our own benefits.  We deeply believe that only if the people in the US is good, than the US will be extremely well, than it will be our parity's good.  That's why you should never ask, never question, never doubt 美利坚和中国, we will make our promises TRUE!!!
+For people thinking that I am a politician?  Please remember that it's only my second election for the president and I have no preliminary political experience.  I am born in CA, Bachleor in UCB, Doc in UCLA, and PostDoc in MIT.  All the knowledge and experience are from my past research and events.  Please believe me, that I will achieve my promices -- This is the basic factor of a researcher!  
+'''

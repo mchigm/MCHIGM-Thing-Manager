@@ -12,6 +12,8 @@ from typing import Any, Dict
 
 _DEFAULTS: Dict[str, Any] = {
     "language": "en",
+    "ai_provider": "openai",
+    "ai_base_url": "",
     "update_repo_owner": "duidui",
     "update_repo_name": "MCHIGM_s-Thing_TM-Manager",
     "auto_check_updates": True,

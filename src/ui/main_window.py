@@ -523,7 +523,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 tr("settings.title", "Settings"),
-                "Language updated. Restart the app to fully apply all translations.",
+                tr("settings.restart_hint", "Restart the app to apply language changes everywhere."),
             )
         self._refresh_pages()
 

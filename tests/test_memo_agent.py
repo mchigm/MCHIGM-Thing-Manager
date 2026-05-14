@@ -308,3 +308,55 @@ class TestCallMemoAgentFallback:
             assert "#urgent" in items[0].tags
         finally:
             agent_mod.litellm = original
+
+    def test_provider_prefix_and_base_url_are_passed(self):
+        valid_response = json.dumps({"items": [{"title": "Finish report"}]})
+        mock_choice = MagicMock()
+        mock_choice.__getitem__.side_effect = lambda key: {"message": {"content": valid_response}}[key]
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_litellm = MagicMock()
+        mock_litellm.completion.return_value = mock_response
+        import src.ai.memo_agent as agent_mod
+        original = agent_mod.litellm
+        try:
+            agent_mod.litellm = mock_litellm
+            msg, items = call_memo_agent(
+                "Finish my report",
+                model="claude-3-5-sonnet-latest",
+                api_key="sk-key",
+                provider="anthropic",
+                base_url="https://api.example/v1",
+            )
+            assert len(items) == 1
+            kwargs = mock_litellm.completion.call_args.kwargs
+            assert kwargs["model"] == "anthropic/claude-3-5-sonnet-latest"
+            assert kwargs["api_base"] == "https://api.example/v1"
+        finally:
+            agent_mod.litellm = original
+
+    def test_local_provider_can_run_without_api_key_when_base_url_set(self):
+        valid_response = json.dumps({"items": [{"title": "Local draft"}]})
+        mock_choice = MagicMock()
+        mock_choice.__getitem__.side_effect = lambda key: {"message": {"content": valid_response}}[key]
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_litellm = MagicMock()
+        mock_litellm.completion.return_value = mock_response
+        import src.ai.memo_agent as agent_mod
+        original = agent_mod.litellm
+        try:
+            agent_mod.litellm = mock_litellm
+            msg, items = call_memo_agent(
+                "Draft on local model",
+                model="llama3.1",
+                api_key="",
+                provider="local",
+                base_url="http://localhost:11434/v1",
+            )
+            assert len(items) == 1
+            kwargs = mock_litellm.completion.call_args.kwargs
+            assert kwargs["model"] == "llama3.1"
+            assert kwargs["api_base"] == "http://localhost:11434/v1"
+        finally:
+            agent_mod.litellm = original

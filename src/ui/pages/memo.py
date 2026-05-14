@@ -72,18 +72,26 @@ class MemoAgentWorker(QObject):
 
     finished = pyqtSignal(object, str)
 
-    def __init__(self, text: str, models: list[str], api_key: str) -> None:
+    def __init__(self, text: str, models: list[str], api_key: str, provider: str, base_url: str) -> None:
         super().__init__()
         self._text = text
         self._models = models
         self._api_key = api_key
+        self._provider = provider
+        self._base_url = base_url
 
     def run(self) -> None:
         try:
             results: list[dict[str, object]] = []
             models = self._models or [""]
             for model in models:
-                ai_text, items = call_memo_agent(self._text, model, self._api_key)
+                ai_text, items = call_memo_agent(
+                    self._text,
+                    model,
+                    self._api_key,
+                    self._provider,
+                    self._base_url,
+                )
                 results.append(
                     {
                         "model": model or "offline",
@@ -257,20 +265,39 @@ class MemoPage(QWidget):
         if not self._status_label:
             return
         settings = load_settings()
+        provider = str(settings.get("ai_provider", "openai")).strip().lower()
+        base_url = str(settings.get("ai_base_url", "")).strip()
         api_key = settings.get("ai_api_key", "")
         models = _configured_models(settings)
-        
-        if api_key and models:
-            self._status_label.setText("🟢 AI Connected")
+        key_optional = bool(base_url) and provider in {"local", "custom", "openai"}
+        provider_name = {
+            "openai": "OpenAI",
+            "anthropic": "Claude",
+            "gemini": "Gemini",
+            "openrouter": "OpenRouter",
+            "local": "Local AI",
+            "custom": "Custom AI",
+        }.get(provider, "AI")
+
+        if models and (api_key or key_optional):
+            self._status_label.setText(f"🟢 {provider_name} Connected")
             self._status_label.setStyleSheet("color: #5cd685; font-size: 11px;")
             if len(models) == 1:
-                self._status_label.setToolTip(f"Model: {models[0]}")
+                tooltip = f"Model: {models[0]}"
             else:
-                self._status_label.setToolTip(f"Models ({len(models)}): {', '.join(models)}")
+                tooltip = f"Models ({len(models)}): {', '.join(models)}"
+            if base_url:
+                tooltip = f"{provider_name} • {base_url} • {tooltip}"
+            else:
+                tooltip = f"{provider_name} • {tooltip}"
+            self._status_label.setToolTip(tooltip)
         else:
             self._status_label.setText("🔴 AI Offline")
             self._status_label.setStyleSheet("color: #d65c5c; font-size: 11px;")
-            self._status_label.setToolTip("Configure API key in Settings to enable AI")
+            if provider in {"local", "custom"} and base_url:
+                self._status_label.setToolTip("Configure a model name to enable local AI")
+            else:
+                self._status_label.setToolTip("Configure API key in Settings to enable AI")
 
     def _load_history(self) -> None:
         """Load chat history from disk."""
@@ -332,6 +359,8 @@ class MemoPage(QWidget):
             text,
             models,
             str(settings.get("ai_api_key", "")),
+            str(settings.get("ai_provider", "openai")),
+            str(settings.get("ai_base_url", "")),
         )
         self._memo_worker.moveToThread(self._memo_thread)
         self._memo_thread.started.connect(self._memo_worker.run)

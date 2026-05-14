@@ -3,7 +3,9 @@ TODOs page — Kanban board (Backlog → To-Do → Doing → Done).
 
 Phase 1: Column structure with live items pulled from the database.
 """
+import html
 import json
+import re
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from PyQt6.QtCore import Qt, QTimer, QMimeData, QByteArray, QDateTime, QUrl
@@ -44,6 +46,10 @@ _COLUMN_COLORS = {
     ItemStatus.DONE:    "#3a6a4a",
 }
 _LEVEL_PREFIX = "!level:"
+_LINK_PATTERN = re.compile(
+    r"(?:(?:https?|ftp)://[^\s<>\"]+|(?:file|mailto|tel|zoommtg|msteams|slack|obsidian|notion|tg)://[^\s<>\"]+|(?:mailto|tel):[^\s<>\"]+|www\.[^\s<>\"]+)",
+    re.IGNORECASE,
+)
 
 
 def _ensure_aware(value: datetime) -> datetime:
@@ -403,8 +409,10 @@ class ItemDetailsDialog(QDialog):
         if links:
             links_label = QLabel()
             links_label.setOpenExternalLinks(False)
+            links_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+            links_label.setCursor(Qt.CursorShape.PointingHandCursor)
             links_label.linkActivated.connect(self._open_link)
-            links_html = "<br>".join([f'<a href="{url}" style="color: #5c85d6;">{url[:50]}{"..." if len(url) > 50 else ""}</a>' for url in links[:5]])
+            links_html = "<br>".join([self._link_markup(url) for url in links[:5]])
             links_label.setText(links_html)
             links_label.setStyleSheet("padding: 4px;")
             form.addRow("Links:", links_label)
@@ -541,11 +549,10 @@ class ItemDetailsDialog(QDialog):
             return
         self.accept()
 
-    def _extract_links(self, text: str) -> list[str]:
+    @staticmethod
+    def _extract_links(text: str) -> list[str]:
         """Extract URLs from text."""
-        import re
-        url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-        return re.findall(url_pattern, text)
+        return [match.strip() for match in _LINK_PATTERN.findall(text or "") if match.strip()]
 
     @staticmethod
     def _widget_datetime(widget: QDateTimeEdit) -> datetime:
@@ -575,18 +582,29 @@ class ItemDetailsDialog(QDialog):
         value = (raw_url or "").strip()
         if not value:
             return
-        if value.startswith("file://"):
-            url = QUrl(value)
-        elif value.startswith("/") or value.startswith("~"):
-            path = Path(value).expanduser().resolve()
-            url = QUrl.fromLocalFile(str(path))
-        else:
-            url = QUrl.fromUserInput(value)
+        url = self._link_to_qurl(value)
         if not url.isValid():
             QMessageBox.warning(self, "Link", f"Invalid link: {value}")
             return
         if not QDesktopServices.openUrl(url):
             QMessageBox.warning(self, "Link", f"Could not open link:\n{value}")
+
+    @staticmethod
+    def _link_to_qurl(value: str) -> QUrl:
+        if value.startswith("file://"):
+            return QUrl(value)
+        if value.startswith("/") or value.startswith("~"):
+            path = Path(value).expanduser().resolve()
+            return QUrl.fromLocalFile(str(path))
+        if value.startswith("www."):
+            return QUrl.fromUserInput(f"https://{value}")
+        return QUrl.fromUserInput(value)
+
+    @staticmethod
+    def _link_markup(url: str) -> str:
+        text = url.strip()
+        display = text[:50] + ("..." if len(text) > 50 else "")
+        return f'<a href="{html.escape(text, quote=True)}" style="color: #5c85d6;">{html.escape(display)}</a>'
 
     def _save_emergency_level(self, session: Session, item: Item) -> None:
         """Update the item's emergency level tag based on selection."""
