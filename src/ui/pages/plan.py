@@ -37,12 +37,20 @@ from src.ui.feedback import show_app_message
 from src.settings_store import load_settings
 from src.ui.search_filters import parse_search_text
 from src.ui.pages.todos import ItemDetailsDialog
+from src.ui.theme import (
+    Color,
+    Font,
+    Size,
+    ghost_button_qss,
+    primary_button_qss,
+    section_title_qss,
+)
 
 _STATUS_COLOR = {
-    ItemStatus.BACKLOG: QColor("#4a4a5a"),
-    ItemStatus.TODO: QColor("#3a5a7a"),
-    ItemStatus.DOING: QColor("#5a4a7a"),
-    ItemStatus.DONE: QColor("#3a6a4a"),
+    ItemStatus.BACKLOG: QColor(Color.COL_BACKLOG),
+    ItemStatus.TODO: QColor(Color.COL_TODO),
+    ItemStatus.DOING: QColor(Color.COL_DOING),
+    ItemStatus.DONE: QColor(Color.COL_DONE),
 }
 _ROW_HEIGHT = 48
 _PADDING = 30
@@ -205,41 +213,35 @@ class PlanPage(QWidget):
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(Size.MD)
 
         # Title row
         title_row = QHBoxLayout()
-        title = QLabel("📊 Plan — Roadmap & Retrospective")
-        title.setStyleSheet("color: #c8c8d8; font-size: 18px; font-weight: bold;")
+        title_row.setSpacing(Size.SM)
+        title = QLabel("Plan")
+        title.setStyleSheet(section_title_qss())
+        subtitle = QLabel("Roadmap & Retrospective")
+        subtitle.setStyleSheet(
+            f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_SM}px;"
+        )
         title_row.addWidget(title)
+        title_row.addWidget(subtitle)
         title_row.addStretch()
 
         # Add new item button
-        add_btn = QPushButton("+ New Item")
-        add_btn.setStyleSheet(
-            "QPushButton { background-color: #5cd685; color: #1a1a2e; border-radius: 4px;"
-            " padding: 6px 12px; font-size: 12px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #6ce695; }"
-        )
+        add_btn = QPushButton("+ New item")
+        add_btn.setStyleSheet(primary_button_qss())
         add_btn.clicked.connect(self._add_new_item)
         title_row.addWidget(add_btn)
 
-        export_btn = QPushButton("📄 Export PDF")
-        export_btn.setStyleSheet(
-            "QPushButton { background-color: #3a5a7a; color: #ffffff; border-radius: 4px;"
-            " padding: 6px 12px; font-size: 12px; }"
-            "QPushButton:hover { background-color: #4a6a8a; }"
-        )
+        export_btn = QPushButton("Export PDF")
+        export_btn.setStyleSheet(ghost_button_qss())
         export_btn.clicked.connect(self._export_pdf)
         title_row.addWidget(export_btn)
 
-        retro_btn = QPushButton("📈 Weekly Retrospective")
-        retro_btn.setStyleSheet(
-            "QPushButton { background-color: #5a4a7a; color: #ffffff; border-radius: 4px;"
-            " padding: 6px 12px; font-size: 12px; }"
-            "QPushButton:hover { background-color: #6a5a8a; }"
-        )
+        retro_btn = QPushButton("Weekly retrospective")
+        retro_btn.setStyleSheet(ghost_button_qss())
         retro_btn.clicked.connect(self._show_retro_placeholder)
         title_row.addWidget(retro_btn)
         root.addLayout(title_row)
@@ -247,78 +249,70 @@ class PlanPage(QWidget):
         # Statistics panel
         stats_frame = QFrame()
         stats_frame.setStyleSheet(
-            "QFrame { background-color: #1a1a2e; border-radius: 8px; border: 1px solid #2a2a3e; }"
+            f"""
+            QFrame {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_MD}px;
+            }}
+            """
         )
         stats_layout = QHBoxLayout(stats_frame)
-        stats_layout.setContentsMargins(12, 8, 12, 8)
-        stats_layout.setSpacing(20)
-        
+        stats_layout.setContentsMargins(Size.LG, Size.MD, Size.LG, Size.MD)
+        stats_layout.setSpacing(Size.XL)
+
+        def _stat_block(value_label: QLabel, name: str) -> QWidget:
+            wrapper = QWidget()
+            vbox = QVBoxLayout(wrapper)
+            vbox.setContentsMargins(0, 0, 0, 0)
+            vbox.setSpacing(2)
+            value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            vbox.addWidget(value_label)
+            name_label = QLabel(name)
+            name_label.setStyleSheet(
+                f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;"
+            )
+            name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            vbox.addWidget(name_label)
+            return wrapper
+
         # Status counts
         for status in ItemStatus:
-            color = _STATUS_COLOR.get(status, QColor("#4a4a5a")).name()
-            stat_widget = QWidget()
-            stat_vbox = QVBoxLayout(stat_widget)
-            stat_vbox.setContentsMargins(0, 0, 0, 0)
-            stat_vbox.setSpacing(2)
-            
+            color = _STATUS_COLOR.get(status, QColor(Color.COL_BACKLOG)).name()
             count_label = QLabel("0")
-            count_label.setStyleSheet(f"color: {color}; font-size: 20px; font-weight: bold;")
-            count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            count_label.setStyleSheet(
+                f"color: {color}; font-size: {Font.SIZE_XL}px; "
+                f"font-weight: {Font.WEIGHT_SEMIBOLD};"
+            )
             self._stats_labels[f"count_{status.value}"] = count_label
-            stat_vbox.addWidget(count_label)
-            
-            name_label = QLabel(status.value)
-            name_label.setStyleSheet(f"color: #808090; font-size: 10px;")
-            name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            stat_vbox.addWidget(name_label)
-            
-            stats_layout.addWidget(stat_widget)
-        
+            stats_layout.addWidget(_stat_block(count_label, status.value))
+
         # Separator
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setStyleSheet("color: #3a3a4e;")
+        sep.setStyleSheet(f"color: {Color.BORDER};")
         stats_layout.addWidget(sep)
-        
+
         # Total workload
-        workload_widget = QWidget()
-        workload_vbox = QVBoxLayout(workload_widget)
-        workload_vbox.setContentsMargins(0, 0, 0, 0)
-        workload_vbox.setSpacing(2)
-        
         workload_label = QLabel("0h")
-        workload_label.setStyleSheet("color: #5cd685; font-size: 20px; font-weight: bold;")
-        workload_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        workload_label.setStyleSheet(
+            f"color: {Color.ACCENT}; font-size: {Font.SIZE_XL}px; "
+            f"font-weight: {Font.WEIGHT_SEMIBOLD};"
+        )
         self._stats_labels["total_time"] = workload_label
-        workload_vbox.addWidget(workload_label)
-        
-        workload_name = QLabel("Est. Time")
-        workload_name.setStyleSheet("color: #808090; font-size: 10px;")
-        workload_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        workload_vbox.addWidget(workload_name)
-        
-        stats_layout.addWidget(workload_widget)
-        
+        stats_layout.addWidget(_stat_block(workload_label, "Est. time"))
+
         # Average workload
-        avg_widget = QWidget()
-        avg_vbox = QVBoxLayout(avg_widget)
-        avg_vbox.setContentsMargins(0, 0, 0, 0)
-        avg_vbox.setSpacing(2)
-        
         avg_label = QLabel("0")
-        avg_label.setStyleSheet("color: #d6b55c; font-size: 20px; font-weight: bold;")
-        avg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avg_label.setStyleSheet(
+            f"color: {Color.WARNING}; font-size: {Font.SIZE_XL}px; "
+            f"font-weight: {Font.WEIGHT_SEMIBOLD};"
+        )
         self._stats_labels["avg_workload"] = avg_label
-        avg_vbox.addWidget(avg_label)
-        
-        avg_name = QLabel("Avg Workload")
-        avg_name.setStyleSheet("color: #808090; font-size: 10px;")
-        avg_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        avg_vbox.addWidget(avg_name)
-        
-        stats_layout.addWidget(avg_widget)
+        stats_layout.addWidget(_stat_block(avg_label, "Avg workload"))
+
         stats_layout.addStretch()
-        
+
         root.addWidget(stats_frame)
 
         # Timeline controls
@@ -326,19 +320,40 @@ class PlanPage(QWidget):
         controls.setSpacing(8)
         controls.setContentsMargins(0, 0, 0, 0)
         
-        zoom_label = QLabel("🔍 Scale:")
-        zoom_label.setStyleSheet("color: #9aa0b8; font-size: 12px;")
+        zoom_label = QLabel("Scale")
+        zoom_label.setStyleSheet(
+            f"color: {Color.TEXT_MUTED}; font-size: {Font.SIZE_SM}px;"
+        )
         controls.addWidget(zoom_label)
 
         self._zoom_slider = QSlider(Qt.Orientation.Horizontal)
         self._zoom_slider.setRange(_MIN_ZOOM, _MAX_ZOOM)
         self._zoom_slider.setValue(_DAY_WIDTH)
         self._zoom_slider.setFixedWidth(150)
+        self._zoom_slider.setStyleSheet(
+            f"""
+            QSlider::groove:horizontal {{
+                background: {Color.SURFACE_ALT};
+                height: 4px;
+                border-radius: 2px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {Color.ACCENT};
+                width: 14px;
+                height: 14px;
+                margin: -5px 0;
+                border-radius: 7px;
+            }}
+            QSlider::handle:horizontal:hover {{ background: {Color.ACCENT_HOVER}; }}
+            """
+        )
         self._zoom_slider.valueChanged.connect(self._on_zoom_changed)
         controls.addWidget(self._zoom_slider)
 
         self._zoom_value_label = QLabel("100%")
-        self._zoom_value_label.setStyleSheet("color: #c8c8d8; font-size: 12px;")
+        self._zoom_value_label.setStyleSheet(
+            f"color: {Color.TEXT}; font-size: {Font.SIZE_SM}px;"
+        )
         controls.addWidget(self._zoom_value_label)
 
         controls.addSpacing(14)
@@ -347,7 +362,7 @@ class PlanPage(QWidget):
         self._period_enabled.toggled.connect(lambda _: self._refresh_current())
         controls.addWidget(self._period_enabled)
 
-        controls.addWidget(QLabel(tr("period.start", "From:")))
+        controls.addWidget(QLabel(tr("period.start", "From")))
         self._period_start = QDateTimeEdit()
         self._period_start.setCalendarPopup(True)
         now = datetime.now(timezone.utc)
@@ -359,7 +374,7 @@ class PlanPage(QWidget):
         self._period_start.dateTimeChanged.connect(lambda _: self._refresh_current())
         controls.addWidget(self._period_start)
 
-        controls.addWidget(QLabel(tr("period.end", "To:")))
+        controls.addWidget(QLabel(tr("period.end", "To")))
         self._period_end = QDateTimeEdit()
         self._period_end.setCalendarPopup(True)
         end = now + timedelta(days=14)
@@ -387,7 +402,7 @@ class PlanPage(QWidget):
 
         controls.addSpacing(16)
 
-        controls.addWidget(QLabel("Statuses:"))
+        controls.addWidget(QLabel("Statuses"))
         self._status_backlog_cb = QCheckBox("Backlog")
         self._status_backlog_cb.setChecked(True)
         self._status_backlog_cb.toggled.connect(lambda _: self._refresh_current())
@@ -404,28 +419,38 @@ class PlanPage(QWidget):
         controls.addWidget(self._status_doing_cb)
 
         controls.addSpacing(10)
-        
+
         # Legend
-        legend_label = QLabel("Legend:")
-        legend_label.setStyleSheet("color: #9aa0b8; font-size: 12px;")
+        legend_label = QLabel("Legend")
+        legend_label.setStyleSheet(
+            f"color: {Color.TEXT_MUTED}; font-size: {Font.SIZE_SM}px;"
+        )
         controls.addWidget(legend_label)
-        
+
         for status in ItemStatus:
-            color = _STATUS_COLOR.get(status, QColor("#4a4a5a")).name()
+            color = _STATUS_COLOR.get(status, QColor(Color.COL_BACKLOG)).name()
             legend_item = QLabel(f"● {status.value}")
-            legend_item.setStyleSheet(f"color: {color}; font-size: 11px;")
+            legend_item.setStyleSheet(
+                f"color: {color}; font-size: {Font.SIZE_XS}px;"
+            )
             controls.addWidget(legend_item)
-        
+
         controls.addStretch()
         root.addLayout(controls)
 
         # Gantt view
         self._scene = QGraphicsScene()
-        self._scene.setBackgroundBrush(QColor("#0f1222"))
+        self._scene.setBackgroundBrush(QColor(Color.BG))
 
         self._view = QGraphicsView(self._scene)
         self._view.setStyleSheet(
-            "background-color: #1e1e2e; border-radius: 6px; border: 1px solid #3a3a4a;"
+            f"""
+            QGraphicsView {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_MD}px;
+            }}
+            """
         )
         self._view.setRenderHints(
             QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing
@@ -568,13 +593,13 @@ class PlanPage(QWidget):
         self._draw_time_axis(baseline, latest_end, len(occurrences))
 
         positions: dict[int, PlanBarItem] = {}
-        pen = QPen(QColor("#2e2e42"))
+        pen = QPen(QColor(Color.BORDER))
 
         for idx, (item, start, end) in enumerate(occurrences):
             start_days = max(0.0, (start - baseline).total_seconds() / 86400)
             x = _PADDING + start_days * self._day_width
             y = _PADDING + idx * _ROW_HEIGHT
-            color = _STATUS_COLOR.get(item.status, QColor("#3c3c50"))
+            color = _STATUS_COLOR.get(item.status, QColor(Color.COL_BACKLOG))
 
             bar = PlanBarItem(
                 item=item,
@@ -592,7 +617,7 @@ class PlanPage(QWidget):
             if item.id not in positions:
                 positions[item.id] = bar
 
-        dep_pen = QPen(QColor("#a0a0c0"))
+        dep_pen = QPen(QColor(Color.TEXT_MUTED))
         dep_pen.setWidth(2)
         for item in items:
             if item.id not in positions:
@@ -664,7 +689,7 @@ class PlanPage(QWidget):
         """Draw day ticks, grid lines, and a 'Now' marker."""
         span_days = max(1, int((max_end - baseline).total_seconds() / 86400) + 2)
         height = _PADDING + rows * _ROW_HEIGHT + 26
-        axis_pen = QPen(QColor("#2f3045"))
+        axis_pen = QPen(QColor(Color.BORDER))
         axis_pen.setWidth(1)
         self._scene.addLine(_PADDING, _PADDING - 10, _PADDING + span_days * self._day_width, _PADDING - 10, axis_pen)
 
@@ -672,18 +697,18 @@ class PlanPage(QWidget):
             tick_x = _PADDING + day * self._day_width
             self._scene.addLine(tick_x, _PADDING - 8, tick_x, height, axis_pen)
             day_label = self._scene.addText((baseline + timedelta(days=day)).strftime("%b %d"))
-            day_label.setDefaultTextColor(QColor("#aeb1c7"))
+            day_label.setDefaultTextColor(QColor(Color.TEXT_MUTED))
             day_label.setPos(tick_x + 4, _PADDING - 30)
 
         now = datetime.now(baseline.tzinfo or timezone.utc)
         if baseline <= now <= max_end:
             days_from_base = (now - baseline).total_seconds() / 86400
             x = _PADDING + days_from_base * self._day_width
-            now_pen = QPen(QColor("#d65c5c"))
+            now_pen = QPen(QColor(Color.DANGER))
             now_pen.setWidth(2)
             self._scene.addLine(x, _PADDING - 18, x, height, now_pen)
             now_label = self._scene.addText("Now")
-            now_label.setDefaultTextColor(QColor("#d65c5c"))
+            now_label.setDefaultTextColor(QColor(Color.DANGER))
             now_label.setPos(x + 4, _PADDING - 42)
 
     def _on_zoom_changed(self, value: int) -> None:
@@ -756,21 +781,20 @@ class PlanPage(QWidget):
             by_scenario[scenario_name].append(title)
             by_type[type_name] = by_type.get(type_name, 0) + 1
 
-        lines = [f"🎉 Completed this week: {len(recent_data)} items\n"]
-        
+        lines = [f"Completed this week: {len(recent_data)} items\n"]
+
         # Summary by type
         lines.append("By Type:")
         for type_name, count in sorted(by_type.items()):
-            emoji = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(type_name, "📋")
-            lines.append(f"  {emoji} {type_name}: {count}")
-        
+            lines.append(f"  • {type_name}: {count}")
+
         lines.append("\nBy Scenario:")
         for scenario, items in sorted(by_scenario.items()):
-            lines.append(f"\n  📁 {scenario} ({len(items)}):")
-            for title in items[:5]:  # Show up to 5 items per scenario
+            lines.append(f"\n  {scenario} ({len(items)}):")
+            for title in items[:5]:
                 lines.append(f"    ✓ {title[:40]}{'...' if len(title) > 40 else ''}")
             if len(items) > 5:
-                lines.append(f"    ... and {len(items) - 5} more")
+                lines.append(f"    … and {len(items) - 5} more")
 
         QMessageBox.information(self, "Weekly Retrospective", "\n".join(lines))
 

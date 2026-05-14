@@ -43,50 +43,20 @@ from src.ui.pages.timetable import TimetablePage
 from src.ui.pages.todos import TodosPage
 from src.ui.feedback import show_app_message
 from src.ui.settings_window import SettingsWindow
+from src.ui.theme import (
+    APP_STYLE as _APP_STYLE,
+    Color,
+    FILTER_BAR_QSS,
+    Font,
+    NAV_BAR_QSS,
+    Size,
+    TOP_BAR_QSS,
+    ghost_button_qss,
+    primary_button_qss,
+    section_title_qss,
+)
 from src.ui.update_worker import UpdateCheckWorker
 from src.version import APP_VERSION
-
-# ---------------------------------------------------------------------------
-# Stylesheet constants
-# ---------------------------------------------------------------------------
-_APP_STYLE = """
-QMainWindow, QWidget {
-    background-color: #1a1a2e;
-    color: #c8c8d8;
-}
-QScrollBar:vertical {
-    background: #2a2a3a;
-    width: 8px;
-    border-radius: 4px;
-}
-QScrollBar::handle:vertical {
-    background: #4a4a5e;
-    border-radius: 4px;
-}
-QToolTip {
-    background-color: #3a3a4a;
-    color: #e0e0f0;
-    border: 1px solid #5c85d6;
-}
-"""
-
-_NAV_BTN_STYLE = """
-QPushButton {{
-    background-color: {bg};
-    color: #c8c8d8;
-    border: none;
-    border-radius: 6px;
-    padding: 10px 6px;
-    font-size: 13px;
-    text-align: left;
-}}
-QPushButton:hover {{
-    background-color: #3a3a55;
-}}
-"""
-
-_NAV_BTN_ACTIVE_BG = "#3a3a55"
-_NAV_BTN_INACTIVE_BG = "transparent"
 
 
 class MainWindow(QMainWindow):
@@ -160,7 +130,7 @@ class MainWindow(QMainWindow):
 
         # Top bar
         main_layout.addWidget(self._build_top_bar())
-        
+
         # Filter panel (hidden by default)
         self._filter_panel = self._build_filter_panel()
         self._filter_panel.setVisible(False)
@@ -172,7 +142,13 @@ class MainWindow(QMainWindow):
         content.setSpacing(0)
 
         content.addWidget(self._build_nav_bar())
-        content.addWidget(self._build_pages(), stretch=1)
+
+        page_host = QWidget()
+        page_layout = QVBoxLayout(page_host)
+        page_layout.setContentsMargins(Size.LG, Size.MD, Size.LG, Size.MD)
+        page_layout.setSpacing(0)
+        page_layout.addWidget(self._build_pages())
+        content.addWidget(page_host, stretch=1)
 
         content_widget = QWidget()
         content_widget.setLayout(content)
@@ -211,86 +187,64 @@ class MainWindow(QMainWindow):
 
     def _build_top_bar(self) -> QWidget:
         bar = QWidget()
-        bar.setFixedHeight(48)
-        bar.setStyleSheet("background-color: #12121e; border-bottom: 1px solid #2e2e42;")
+        bar.setObjectName("TopBar")
+        bar.setFixedHeight(Size.TOP_BAR_HEIGHT)
+        bar.setStyleSheet(TOP_BAR_QSS)
 
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 0, 12, 0)
-        layout.setSpacing(8)
+        layout.setContentsMargins(Size.LG, 0, Size.MD, 0)
+        layout.setSpacing(Size.SM)
 
         logo_path = self._resolve_icon_path()
         if logo_path:
             logo = QLabel()
             logo_pixmap = QPixmap(str(logo_path)).scaled(
-                20,
-                20,
+                18,
+                18,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
             logo.setPixmap(logo_pixmap)
             layout.addWidget(logo)
 
-        # App name
+        # App name (subtle — branding lives in the icon)
         app_label = QLabel(tr("app.name", "MCHIGM Thing Manager"))
-        app_label.setStyleSheet("color: #5c85d6; font-size: 15px; font-weight: bold;")
+        app_label.setObjectName("AppName")
         layout.addWidget(app_label)
 
-        layout.addSpacing(16)
+        layout.addStretch(1)
 
-        # Global Workspace dropdown
-        ws_label = QLabel(tr("top.workspace", "Workspace:"))
-        ws_label.setStyleSheet("color: #808090; font-size: 12px;")
-        layout.addWidget(ws_label)
-
+        # Global Workspace dropdown (label hidden — the placeholder text is enough)
         self._scenario_combo = QComboBox()
-        self._scenario_combo.setMinimumWidth(130)
-        self._scenario_combo.setStyleSheet(
-            "QComboBox { background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            " padding: 4px 8px; border: 1px solid #3a3a4e; font-size: 12px; }"
-            "QComboBox::drop-down { border: none; }"
-            "QComboBox QAbstractItemView { background-color: #2a2a3a; color: #c8c8d8;"
-            " selection-background-color: #5c85d6; }"
-        )
+        self._scenario_combo.setMinimumWidth(140)
+        self._scenario_combo.setToolTip(tr("top.workspace", "Workspace"))
         self._scenario_combo.currentTextChanged.connect(self._on_scenario_changed)
         layout.addWidget(self._scenario_combo)
-
-        layout.addSpacing(8)
 
         # Omni-Search bar
         self._search_bar = QLineEdit()
         self._search_bar.setPlaceholderText(
-            tr("top.search.placeholder", "Search items, #tags, natural language…")
+            tr("top.search.placeholder", "Search  ·  #tag  ·  natural language")
         )
-        self._search_bar.setMinimumWidth(240)
-        self._search_bar.setMaximumWidth(400)
-        self._search_bar.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0f0; border-radius: 4px;"
-            "padding: 4px 10px; border: 1px solid #3a3a4e; font-size: 12px;"
-        )
+        self._search_bar.setMinimumWidth(260)
+        self._search_bar.setMaximumWidth(420)
+        self._search_bar.setClearButtonEnabled(True)
         self._search_bar.textChanged.connect(self._on_search_text_changed)
         layout.addWidget(self._search_bar)
 
-        # Filter button
-        self._filter_btn = QPushButton(tr("top.filters", "🔍 Filters"))
+        # Filter toggle
+        self._filter_btn = QPushButton(tr("top.filters", "Filters"))
         self._filter_btn.setCheckable(True)
-        self._filter_btn.setStyleSheet(
-            "QPushButton { background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            " padding: 4px 12px; border: 1px solid #3a3a4e; font-size: 12px; }"
-            "QPushButton:hover { background-color: #3a3a4e; }"
-            "QPushButton:checked { background-color: #3a5a7a; border-color: #5c85d6; }"
-        )
+        self._filter_btn.setToolTip("Show / hide advanced filters")
         self._filter_btn.clicked.connect(self._toggle_filter_panel)
         layout.addWidget(self._filter_btn)
 
-        layout.addStretch()
+        layout.addStretch(2)
 
-        # Settings button
-        settings_btn = QPushButton(tr("top.settings", "⚙ Settings"))
-        settings_btn.setStyleSheet(
-            "QPushButton { background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            " padding: 4px 12px; border: 1px solid #3a3a4e; font-size: 12px; }"
-            "QPushButton:hover { background-color: #3a3a4e; }"
-        )
+        # Settings button — ghost style on the right
+        settings_btn = QPushButton(tr("top.settings", "Settings"))
+        settings_btn.setStyleSheet(ghost_button_qss())
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         settings_btn.clicked.connect(self._open_settings)
         layout.addWidget(settings_btn)
 
@@ -299,112 +253,87 @@ class MainWindow(QMainWindow):
     def _build_filter_panel(self) -> QWidget:
         """Build the advanced filter panel."""
         from PyQt6.QtWidgets import QSpinBox, QCheckBox
-        
+
         panel = QWidget()
-        panel.setStyleSheet("background-color: #1a1a2e; border-bottom: 1px solid #2e2e42;")
-        panel.setFixedHeight(60)
-        
+        panel.setObjectName("FilterBar")
+        panel.setStyleSheet(FILTER_BAR_QSS)
+        panel.setFixedHeight(Size.FILTER_BAR_HEIGHT)
+
         layout = QHBoxLayout(panel)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(16)
-        
+        layout.setContentsMargins(Size.LG, Size.SM, Size.LG, Size.SM)
+        layout.setSpacing(Size.LG)
+
+        def _add_group(label_text: str) -> QHBoxLayout:
+            """Helper: label + widget(s) grouped horizontally with tight spacing."""
+            wrap = QHBoxLayout()
+            wrap.setSpacing(Size.SM)
+            lab = QLabel(label_text)
+            wrap.addWidget(lab)
+            layout.addLayout(wrap)
+            return wrap
+
         # Tags filter
-        tags_label = QLabel("Tags:")
-        tags_label.setStyleSheet("color: #808090; font-size: 12px;")
-        layout.addWidget(tags_label)
-        
+        tags_group = _add_group("Tag")
         self._tags_filter = QComboBox()
-        self._tags_filter.addItem("All Tags")
+        self._tags_filter.addItem("All")
         with SessionLocal() as session:
             tags = session.query(Tag).order_by(Tag.name).all()
             for tag in tags:
                 self._tags_filter.addItem(tag.name)
-        self._tags_filter.setStyleSheet(
-            "QComboBox { background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            " padding: 4px 8px; border: 1px solid #3a3a4e; font-size: 11px; min-width: 100px; }"
-        )
+        self._tags_filter.setMinimumWidth(110)
         self._tags_filter.currentTextChanged.connect(self._apply_filters)
-        layout.addWidget(self._tags_filter)
-        
+        tags_group.addWidget(self._tags_filter)
+
         # Workload filter
-        workload_label = QLabel("Workload:")
-        workload_label.setStyleSheet("color: #808090; font-size: 12px;")
-        layout.addWidget(workload_label)
-        
+        workload_group = _add_group("Workload")
         self._workload_min = QSpinBox()
         self._workload_min.setRange(0, 5)
         self._workload_min.setSpecialValueText("Any")
-        self._workload_min.setStyleSheet(
-            "background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            "border: 1px solid #3a3a4e; padding: 2px;"
-        )
+        self._workload_min.setFixedWidth(64)
         self._workload_min.valueChanged.connect(self._apply_filters)
-        layout.addWidget(self._workload_min)
-        
-        to_label = QLabel("to")
-        to_label.setStyleSheet("color: #606070; font-size: 11px;")
-        layout.addWidget(to_label)
-        
+        workload_group.addWidget(self._workload_min)
+        workload_group.addWidget(QLabel("–"))
         self._workload_max = QSpinBox()
         self._workload_max.setRange(0, 5)
         self._workload_max.setValue(5)
         self._workload_max.setSpecialValueText("Any")
-        self._workload_max.setStyleSheet(
-            "background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            "border: 1px solid #3a3a4e; padding: 2px;"
-        )
+        self._workload_max.setFixedWidth(64)
         self._workload_max.valueChanged.connect(self._apply_filters)
-        layout.addWidget(self._workload_max)
-        
+        workload_group.addWidget(self._workload_max)
+
         # Estimated time filter
-        time_label = QLabel("Est. Time:")
-        time_label.setStyleSheet("color: #808090; font-size: 12px;")
-        layout.addWidget(time_label)
-        
+        time_group = _add_group("Time")
         self._time_min = QSpinBox()
         self._time_min.setRange(0, 999)
         self._time_min.setSuffix(" min")
         self._time_min.setSpecialValueText("Any")
-        self._time_min.setStyleSheet(
-            "background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            "border: 1px solid #3a3a4e; padding: 2px;"
-        )
+        self._time_min.setFixedWidth(96)
         self._time_min.valueChanged.connect(self._apply_filters)
-        layout.addWidget(self._time_min)
-        
-        to_label2 = QLabel("to")
-        to_label2.setStyleSheet("color: #606070; font-size: 11px;")
-        layout.addWidget(to_label2)
-        
+        time_group.addWidget(self._time_min)
+        time_group.addWidget(QLabel("–"))
         self._time_max = QSpinBox()
         self._time_max.setRange(0, 999)
         self._time_max.setValue(999)
         self._time_max.setSuffix(" min")
         self._time_max.setSpecialValueText("Any")
-        self._time_max.setStyleSheet(
-            "background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            "border: 1px solid #3a3a4e; padding: 2px;"
-        )
+        self._time_max.setFixedWidth(96)
         self._time_max.valueChanged.connect(self._apply_filters)
-        layout.addWidget(self._time_max)
-        
+        time_group.addWidget(self._time_max)
+
         # Has workload checkbox
         self._has_workload_cb = QCheckBox("Has workload")
-        self._has_workload_cb.setStyleSheet("color: #c8c8d8; font-size: 11px;")
         self._has_workload_cb.stateChanged.connect(self._apply_filters)
         layout.addWidget(self._has_workload_cb)
-        
+
+        layout.addStretch()
+
         # Reset button
         reset_btn = QPushButton("Reset")
-        reset_btn.setStyleSheet(
-            "QPushButton { background-color: #3a3a4e; color: #c8c8d8; border-radius: 4px;"
-            " padding: 4px 8px; font-size: 11px; }"
-            "QPushButton:hover { background-color: #4a4a5e; }"
-        )
+        reset_btn.setStyleSheet(ghost_button_qss())
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         reset_btn.clicked.connect(self._reset_filters)
         layout.addWidget(reset_btn)
-        
-        layout.addStretch()
+
         return panel
 
     def _toggle_filter_panel(self) -> None:
@@ -445,30 +374,48 @@ class MainWindow(QMainWindow):
 
     def _build_nav_bar(self) -> QWidget:
         nav = QWidget()
-        nav.setFixedWidth(160)
-        nav.setStyleSheet("background-color: #12121e; border-right: 1px solid #2e2e42;")
+        nav.setObjectName("NavBar")
+        nav.setFixedWidth(Size.NAV_WIDTH)
+        nav.setStyleSheet(NAV_BAR_QSS)
 
         layout = QVBoxLayout(nav)
-        layout.setContentsMargins(8, 16, 8, 16)
-        layout.setSpacing(4)
+        layout.setContentsMargins(Size.MD, Size.LG, Size.MD, Size.LG)
+        layout.setSpacing(2)
 
+        section = QLabel("WORKSPACE")
+        section.setObjectName("NavSection")
+        layout.addWidget(section)
+        layout.addSpacing(Size.XS)
+
+        # Nav labels: glyph + label. Glyphs are simple, color-faithful, and
+        # padded so they align in the active state.
         pages = [
-            (tr("nav.todos", "✅  TODOs"), 0),
-            (tr("nav.timetable", "📅  Timetable"), 1),
-            (tr("nav.memo", "💬  MEMO"), 2),
-            (tr("nav.plan", "🗺   Plan"), 3),
+            ("\u2713", tr("nav.todos", "TODOs"), 0),
+            ("\u25A4", tr("nav.timetable", "Timetable"), 1),
+            ("\u270E", tr("nav.memo", "MEMO"), 2),
+            ("\u25CE", tr("nav.plan", "Plan"), 3),
         ]
 
-        for label, index in pages:
-            btn = QPushButton(label)
+        for glyph, label, index in pages:
+            btn = QPushButton(f"  {glyph}    {label}")
+            btn.setObjectName("NavButton")
+            btn.setProperty("active", False)
             btn.setCheckable(False)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn.setStyleSheet(_NAV_BTN_STYLE.format(bg=_NAV_BTN_INACTIVE_BG))
             btn.clicked.connect(lambda checked, i=index: self._navigate_to(i))
             layout.addWidget(btn)
             self._page_buttons.append(btn)
 
         layout.addStretch()
+
+        # Subtle version footer
+        version_lbl = QLabel(f"v{APP_VERSION}")
+        version_lbl.setStyleSheet(
+            f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}; padding: 4px 10px;"
+        )
+        layout.addWidget(version_lbl)
+
         return nav
 
     def _build_pages(self) -> QStackedWidget:
@@ -509,9 +456,9 @@ class MainWindow(QMainWindow):
     def _seed_default_scenarios(self) -> None:
         """Insert default scenarios on first run."""
         defaults = [
-            Scenario(name="School", color="#5c85d6"),
-            Scenario(name="Work", color="#d6855c"),
-            Scenario(name="Personal", color="#5cd685"),
+            Scenario(name="School", color=Color.SCENARIO_SCHOOL),
+            Scenario(name="Work", color=Color.SCENARIO_WORK),
+            Scenario(name="Personal", color=Color.SCENARIO_PERSONAL),
         ]
         with SessionLocal() as session:
             session.add_all(defaults)
@@ -530,8 +477,10 @@ class MainWindow(QMainWindow):
     def _navigate_to(self, index: int) -> None:
         self._stack.setCurrentIndex(index)
         for i, btn in enumerate(self._page_buttons):
-            bg = _NAV_BTN_ACTIVE_BG if i == index else _NAV_BTN_INACTIVE_BG
-            btn.setStyleSheet(_NAV_BTN_STYLE.format(bg=bg))
+            btn.setProperty("active", "true" if i == index else "false")
+            # Force Qt to re-evaluate the property selector
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
         page_name = {0: "TODOs", 1: "Timetable", 2: "MEMO", 3: "Plan"}.get(index, "Page")
         show_app_message(self, f"Opened {page_name}", 1200)
 
@@ -654,43 +603,37 @@ class QuickCaptureDialog(QDialog):
 
     def _setup_ui(self):
         from PyQt6.QtWidgets import QFormLayout, QDialogButtonBox, QComboBox, QLineEdit, QTextEdit
-        
+
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(Size.LG, Size.LG, Size.LG, Size.LG)
+        layout.setSpacing(Size.MD)
 
         form = QFormLayout()
+        form.setSpacing(Size.SM)
 
         self.title_edit = QLineEdit()
         self.title_edit.setPlaceholderText("What's on your mind?")
-        self.title_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 8px; font-size: 14px;"
-        )
-        form.addRow("Title:", self.title_edit)
+        form.addRow("Title", self.title_edit)
         self.title_edit.returnPressed.connect(self._save_item)
 
         self.description_edit = QTextEdit()
-        self.description_edit.setPlaceholderText("Optional details...")
-        self.description_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
-        )
-        self.description_edit.setMaximumHeight(80)
-        form.addRow("Details:", self.description_edit)
+        self.description_edit.setPlaceholderText("Optional details…")
+        self.description_edit.setMaximumHeight(96)
+        form.addRow("Details", self.description_edit)
 
         # Type selector
         self.type_combo = QComboBox()
         for item_type in ItemType:
-            emoji = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(item_type.value, "📋")
-            self.type_combo.addItem(f"{emoji} {item_type.value}", item_type)
+            self.type_combo.addItem(item_type.value, item_type)
         self.type_combo.setCurrentIndex(0)  # Default to Task
-        form.addRow("Type:", self.type_combo)
+        form.addRow("Type", self.type_combo)
 
         # Status selector
         self.status_combo = QComboBox()
         for status in ItemStatus:
             self.status_combo.addItem(status.value, status)
         self.status_combo.setCurrentIndex(0)  # Default to Backlog
-        form.addRow("Status:", self.status_combo)
+        form.addRow("Status", self.status_combo)
 
         # Scenario selector
         self.scenario_combo = QComboBox()
@@ -704,7 +647,7 @@ class QuickCaptureDialog(QDialog):
             idx = self.scenario_combo.findText(self._current_scenario)
             if idx >= 0:
                 self.scenario_combo.setCurrentIndex(idx)
-        form.addRow("Scenario:", self.scenario_combo)
+        form.addRow("Scenario", self.scenario_combo)
 
         layout.addLayout(form)
 
@@ -712,6 +655,9 @@ class QuickCaptureDialog(QDialog):
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        save_btn = button_box.button(QDialogButtonBox.StandardButton.Save)
+        if save_btn is not None:
+            save_btn.setStyleSheet(primary_button_qss())
         button_box.accepted.connect(self._save_item)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)

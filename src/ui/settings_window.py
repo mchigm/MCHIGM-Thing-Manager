@@ -36,6 +36,13 @@ from src.calendar_sync import CalendarSyncManager, CalendarProvider
 from src.database.models import engine
 from src.i18n import language_choices, tr
 from src.settings_store import load_settings, save_settings
+from src.ui.theme import (
+    Color,
+    Font,
+    Size,
+    ghost_button_qss,
+    primary_button_qss,
+)
 from src.ui.update_worker import UpdateCheckWorker
 from src.version import APP_VERSION
 
@@ -130,30 +137,42 @@ class SettingsWindow(QDialog):
     def _build_status_banner(self) -> QFrame:
         banner = QFrame()
         banner.setStyleSheet(
-            "QFrame {"
-            " background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
-            " stop:0 #1e2a45, stop:1 #25365a);"
-            " border-radius: 8px; border: 1px solid #2f4164;"
-            "}"
-            "QLabel { color: #e4e6f4; }"
+            f"""
+            QFrame {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_MD}px;
+            }}
+            QLabel {{ color: {Color.TEXT}; }}
+            """
         )
         layout = QHBoxLayout(banner)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(10)
+        layout.setContentsMargins(Size.MD, Size.SM, Size.MD, Size.SM)
+        layout.setSpacing(Size.MD)
 
-        self._status_badge = QLabel("Live status")
+        self._status_badge = QLabel("Live")
         self._status_badge.setStyleSheet(
-            "background-color: #5cd685; color: #0c1b2e; padding: 4px 10px;"
-            "border-radius: 10px; font-weight: bold;"
+            f"""
+            background-color: {Color.SUCCESS};
+            color: {Color.TEXT_INVERSE};
+            padding: 3px 10px;
+            border-radius: {Size.RADIUS_SM}px;
+            font-weight: {Font.WEIGHT_SEMIBOLD};
+            font-size: {Font.SIZE_XS}px;
+            """
         )
         layout.addWidget(self._status_badge)
 
         self._status_details = QLabel("")
-        self._status_details.setStyleSheet("font-size: 12px; color: #e0e3f6;")
+        self._status_details.setStyleSheet(
+            f"font-size: {Font.SIZE_SM}px; color: {Color.TEXT_MUTED};"
+        )
         layout.addWidget(self._status_details, stretch=1)
 
         pulse = QLabel("●")
-        pulse.setStyleSheet("color: #7ec2ff; font-size: 13px;")
+        pulse.setStyleSheet(
+            f"color: {Color.ACCENT}; font-size: {Font.SIZE_SM}px;"
+        )
         layout.addWidget(pulse)
 
         return banner
@@ -169,9 +188,20 @@ class SettingsWindow(QDialog):
             if self._calendar_auto_sync_cb and self._calendar_auto_sync_cb.isChecked()
             else "Manual sync"
         )
-        badge_color = "#5cd685" if self._mcp_manager.connected or self._calendar_manager.connected else "#d6855c"
+        badge_color = (
+            Color.SUCCESS
+            if self._mcp_manager.connected or self._calendar_manager.connected
+            else Color.WARNING
+        )
         self._status_badge.setStyleSheet(
-            f"background-color: {badge_color}; color: #0c1b2e; padding: 4px 10px; border-radius: 10px; font-weight: bold;"
+            f"""
+            background-color: {badge_color};
+            color: {Color.TEXT_INVERSE};
+            padding: 3px 10px;
+            border-radius: {Size.RADIUS_SM}px;
+            font-weight: {Font.WEIGHT_SEMIBOLD};
+            font-size: {Font.SIZE_XS}px;
+            """
         )
         self._status_details.setText(f"MCP: {mcp_state}   •   Calendar: {cal_state}   •   {auto_sync}")
 
@@ -260,7 +290,7 @@ class SettingsWindow(QDialog):
         emergency_layout.addWidget(self._emergency_levels_edit)
 
         hint = QLabel("These levels appear in item details; leave blank for default Low/Medium/High.")
-        hint.setStyleSheet("color: #808090; font-size: 11px;")
+        hint.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         hint.setWordWrap(True)
         emergency_layout.addWidget(hint)
 
@@ -324,7 +354,7 @@ class SettingsWindow(QDialog):
         self._check_now_btn.clicked.connect(self._check_updates_now)
         check_row.addWidget(self._check_now_btn)
         self._last_update_label = QLabel(self._build_update_status_text())
-        self._last_update_label.setStyleSheet("color: #808090; font-size: 11px;")
+        self._last_update_label.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         self._last_update_label.setWordWrap(True)
         check_row.addWidget(self._last_update_label, stretch=1)
         updates_form.addRow("Manual Check:", check_row)
@@ -341,7 +371,7 @@ class SettingsWindow(QDialog):
         
         self._color_preview = QLabel()
         self._color_preview.setFixedSize(60, 30)
-        self._color_preview.setStyleSheet("background-color: #5c85d6; border: 1px solid #3a3a4e; border-radius: 4px;")
+        self._color_preview.setStyleSheet(f"background-color: {Color.ACCENT}; border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS_SM}px;")
         preview_row.addWidget(self._color_preview)
         
         pick_color_btn = QPushButton("Pick Color")
@@ -354,7 +384,7 @@ class SettingsWindow(QDialog):
         # Hex input
         hex_row = QHBoxLayout()
         hex_label = QLabel("Hex:")
-        hex_label.setStyleSheet("color: #a0a0b0;")
+        hex_label.setStyleSheet(f"color: {Color.TEXT_MUTED};")
         hex_row.addWidget(hex_label)
         
         self._hex_edit = QLineEdit("#5c85d6")
@@ -373,7 +403,7 @@ class SettingsWindow(QDialog):
         # RGBA input
         rgba_row = QHBoxLayout()
         rgba_label = QLabel("RGBA:")
-        rgba_label.setStyleSheet("color: #a0a0b0;")
+        rgba_label.setStyleSheet(f"color: {Color.TEXT_MUTED};")
         rgba_row.addWidget(rgba_label)
         
         self._rgba_edit = QLineEdit("rgba(92, 133, 214, 1.0)")
@@ -408,7 +438,7 @@ class SettingsWindow(QDialog):
 
         db_path_label = QLabel(f"Database: {self._db_path()}")
         db_path_label.setWordWrap(True)
-        db_path_label.setStyleSheet("color: #808090; font-size: 11px;")
+        db_path_label.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         backup_layout.addWidget(db_path_label)
 
         btn_row = QHBoxLayout()
@@ -477,7 +507,7 @@ class SettingsWindow(QDialog):
 
         models_hint = QLabel("Use comma-separated models. MEMO can generate multiple drafts at once for you to choose.")
         models_hint.setWordWrap(True)
-        models_hint.setStyleSheet("color: #808090; font-size: 11px;")
+        models_hint.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         model_form.addRow("", models_hint)
         layout.addWidget(model_box)
 
@@ -495,7 +525,7 @@ class SettingsWindow(QDialog):
             "AI is optional. Without a key, MEMO will save notes locally without calling a model."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #808090; font-size: 11px;")
+        hint.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         layout.addWidget(hint)
         self._on_ai_provider_changed(self._ai_provider_combo.currentIndex() if self._ai_provider_combo else 0)
         layout.addStretch()
@@ -529,7 +559,7 @@ class SettingsWindow(QDialog):
             "read/write data. Install the official 'mcp[cli]' package to enable live connections."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #808090; font-size: 11px;")
+        intro.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         layout.addWidget(intro)
 
         form_box = QGroupBox("Connection")
@@ -542,7 +572,7 @@ class SettingsWindow(QDialog):
 
         mcp_status_text = "connected" if getattr(self._mcp_manager, "connected", False) else "disconnected"
         self._mcp_status_label = QLabel(mcp_status_text)
-        self._mcp_status_label.setStyleSheet("color: #808090; font-size: 11px;")
+        self._mcp_status_label.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         form.addRow("Status:", self._mcp_status_label)
 
         btn_row = QHBoxLayout()
@@ -575,7 +605,7 @@ class SettingsWindow(QDialog):
             "Install required packages to enable cloud calendar integration."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #808090; font-size: 11px;")
+        intro.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         layout.addWidget(intro)
 
         # Provider selection
@@ -596,7 +626,7 @@ class SettingsWindow(QDialog):
         provider_form.addRow("Provider:", self._calendar_provider_combo)
 
         self._calendar_status_label = QLabel("Not connected")
-        self._calendar_status_label.setStyleSheet("color: #808090; font-size: 11px;")
+        self._calendar_status_label.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         provider_form.addRow("Status:", self._calendar_status_label)
 
         layout.addWidget(provider_box)
@@ -621,7 +651,7 @@ class SettingsWindow(QDialog):
             "Get credentials.json from Google Cloud Console → APIs & Services → Credentials"
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #808090; font-size: 10px;")
+        hint.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         google_form.addRow("", hint)
 
         layout.addWidget(google_box)
@@ -651,7 +681,7 @@ class SettingsWindow(QDialog):
             "Register an app in Azure AD → App registrations to get these values"
         )
         hint2.setWordWrap(True)
-        hint2.setStyleSheet("color: #808090; font-size: 10px;")
+        hint2.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         outlook_form.addRow("", hint2)
 
         layout.addWidget(outlook_box)
@@ -725,7 +755,7 @@ class SettingsWindow(QDialog):
             
             self._hex_edit.setText(hex_color)
             self._rgba_edit.setText(rgba)
-            self._color_preview.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #3a3a4e; border-radius: 4px;")
+            self._color_preview.setStyleSheet(f"background-color: {hex_color}; border: 1px solid " + Color.BORDER + f"; border-radius: {Size.RADIUS_SM}px;")
             
             self._hex_edit.blockSignals(False)
             self._rgba_edit.blockSignals(False)
@@ -750,7 +780,7 @@ class SettingsWindow(QDialog):
         self._rgba_edit.setText(rgba)
         self._rgba_edit.blockSignals(False)
         self._color_preview.setStyleSheet(
-            f"background-color: {normalized_hex}; border: 1px solid #3a3a4e; border-radius: 4px;"
+            f"background-color: {normalized_hex}; border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS_SM}px;"
         )
 
     def _update_color_from_rgba(self, rgba_str: str) -> None:
@@ -778,7 +808,7 @@ class SettingsWindow(QDialog):
         self._hex_edit.setText(hex_color)
         self._hex_edit.blockSignals(False)
         self._color_preview.setStyleSheet(
-            f"background-color: {hex_color}; border: 1px solid #3a3a4e; border-radius: 4px;"
+            f"background-color: {hex_color}; border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS_SM}px;"
         )
 
     def _copy_to_clipboard(self, text: str) -> None:
@@ -1155,7 +1185,7 @@ class SettingsWindow(QDialog):
         
         # Info label
         info = QLabel("Configure keyboard shortcuts. Click on a shortcut to edit it.")
-        info.setStyleSheet("color: #808090; font-size: 11px;")
+        info.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         layout.addWidget(info)
         
         # Hotkeys table
@@ -1166,9 +1196,28 @@ class SettingsWindow(QDialog):
         self._hotkeys_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         self._hotkeys_table.setColumnWidth(1, 150)
         self._hotkeys_table.setStyleSheet(
-            "QTableWidget { background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e; }"
-            "QTableWidget::item { padding: 8px; }"
-            "QHeaderView::section { background-color: #1a1a2a; color: #c8c8d8; padding: 8px; }"
+            f"""
+            QTableWidget {{
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_MD}px;
+                gridline-color: {Color.BORDER};
+            }}
+            QTableWidget::item {{ padding: 8px; }}
+            QTableWidget::item:selected {{
+                background-color: {Color.ACCENT_SUBTLE};
+                color: {Color.TEXT};
+            }}
+            QHeaderView::section {{
+                background-color: {Color.SURFACE_ALT};
+                color: {Color.TEXT_MUTED};
+                padding: 8px;
+                border: none;
+                border-bottom: 1px solid {Color.BORDER};
+                font-weight: {Font.WEIGHT_SEMIBOLD};
+            }}
+            """
         )
         
         # Populate with current hotkeys
@@ -1202,12 +1251,8 @@ class SettingsWindow(QDialog):
         layout.addWidget(self._hotkeys_table)
         
         # Reset to defaults button
-        reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setStyleSheet(
-            "QPushButton { background-color: #3a3a4e; color: #c8c8d8; border-radius: 4px;"
-            " padding: 8px 16px; font-size: 12px; }"
-            "QPushButton:hover { background-color: #4a4a5e; }"
-        )
+        reset_btn = QPushButton("Reset to defaults")
+        reset_btn.setStyleSheet(ghost_button_qss())
         reset_btn.clicked.connect(self._reset_hotkeys)
         layout.addWidget(reset_btn)
         
@@ -1243,13 +1288,20 @@ class SettingsWindow(QDialog):
         self._memory_limit_spin.setSuffix(" MB")
         self._memory_limit_spin.setValue(self._settings.get("memory_limit_mb", 512))
         self._memory_limit_spin.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
+            f"""
+            QSpinBox {{
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_SM}px;
+                padding: 4px;
+            }}
+            """
         )
         memory_layout.addRow("Memory Limit:", self._memory_limit_spin)
         
         memory_info = QLabel("Recommended: 256-512 MB for normal use, 1024+ MB for large datasets")
-        memory_info.setStyleSheet("color: #606070; font-size: 10px;")
+        memory_info.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         memory_layout.addRow("", memory_info)
         
         layout.addWidget(memory_group)
@@ -1263,10 +1315,6 @@ class SettingsWindow(QDialog):
         current_policy = self._settings.get("cpu_policy", "balanced")
         policy_map = {"low": 0, "balanced": 1, "high": 2}
         self._cpu_policy_combo.setCurrentIndex(policy_map.get(current_policy, 1))
-        self._cpu_policy_combo.setStyleSheet(
-            "QComboBox { background-color: #2a2a3a; color: #c8c8d8; border-radius: 4px;"
-            " padding: 4px 8px; border: 1px solid #3a3a4e; }"
-        )
         cpu_layout.addWidget(self._cpu_policy_combo)
         
         cpu_info = QLabel(
@@ -1274,7 +1322,7 @@ class SettingsWindow(QDialog):
             "• Balanced: Normal operation (recommended)\n"
             "• High: Faster processing, higher power consumption"
         )
-        cpu_info.setStyleSheet("color: #606070; font-size: 10px;")
+        cpu_info.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         cpu_layout.addWidget(cpu_info)
         
         layout.addWidget(cpu_group)
@@ -1286,14 +1334,14 @@ class SettingsWindow(QDialog):
         from PyQt6.QtWidgets import QCheckBox
         self._gpu_enabled_cb = QCheckBox("Enable GPU acceleration (if available)")
         self._gpu_enabled_cb.setChecked(self._settings.get("gpu_acceleration", True))
-        self._gpu_enabled_cb.setStyleSheet("color: #c8c8d8;")
+        self._gpu_enabled_cb.setStyleSheet(f"color: {Color.TEXT};")
         gpu_layout.addWidget(self._gpu_enabled_cb)
         
         gpu_info = QLabel(
             "GPU acceleration can improve rendering performance for the Gantt chart\n"
             "and other graphical elements. Disable if you experience display issues."
         )
-        gpu_info.setStyleSheet("color: #606070; font-size: 10px;")
+        gpu_info.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         gpu_layout.addWidget(gpu_info)
         
         layout.addWidget(gpu_group)
@@ -1307,13 +1355,20 @@ class SettingsWindow(QDialog):
         self._buffer_time_spin.setSuffix(" min/hour")
         self._buffer_time_spin.setValue(self._settings.get("buffer_time_per_hour", 45))
         self._buffer_time_spin.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
+            f"""
+            QSpinBox {{
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_SM}px;
+                padding: 4px;
+            }}
+            """
         )
         buffer_layout.addRow("Buffer Time:", self._buffer_time_spin)
         
         buffer_info = QLabel("Additional time added per hour of estimated work to account for breaks/interruptions")
-        buffer_info.setStyleSheet("color: #606070; font-size: 10px;")
+        buffer_info.setStyleSheet(f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;")
         buffer_layout.addRow("", buffer_info)
         
         layout.addWidget(buffer_group)

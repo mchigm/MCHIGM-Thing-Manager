@@ -28,6 +28,14 @@ from src.database.models import Dependency, Item, Scenario, SessionLocal, Tag
 from src.i18n import tr
 from src.ui.feedback import show_app_message
 from src.settings_store import load_settings
+from src.ui.theme import (
+    Color,
+    Font,
+    Size,
+    ghost_button_qss,
+    primary_button_qss,
+    section_title_qss,
+)
 
 _HISTORY_PATH = Path.home() / ".mchigm_thing_manager" / "memo_history.json"
 
@@ -124,49 +132,55 @@ class MemoPage(QWidget):
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(Size.MD)
 
         # Title row with status indicator
         title_row = QHBoxLayout()
-        title = QLabel("MEMO — AI Copilot")
-        title.setStyleSheet("color: #c8c8d8; font-size: 18px; font-weight: bold;")
+        title_row.setSpacing(Size.SM)
+        title = QLabel("MEMO")
+        title.setStyleSheet(section_title_qss())
+        subtitle = QLabel("AI Copilot")
+        subtitle.setStyleSheet(
+            f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_SM}px;"
+        )
         title_row.addWidget(title)
-        
+        title_row.addWidget(subtitle)
+
         title_row.addStretch()
-        
+
         # AI status indicator
         self._status_label = QLabel()
         self._update_status_indicator()
         title_row.addWidget(self._status_label)
 
         self._install_cli_btn = QPushButton(tr("memo.install_cli", "Install CLI"))
-        self._install_cli_btn.setStyleSheet(
-            "QPushButton { background-color: #3a5a7a; color: #ffffff; border-radius: 4px;"
-            " padding: 4px 10px; font-size: 11px; }"
-            "QPushButton:hover { background-color: #4a6a8a; }"
-        )
+        self._install_cli_btn.setStyleSheet(ghost_button_qss())
         self._install_cli_btn.clicked.connect(self._install_openclaw_cli)
         title_row.addWidget(self._install_cli_btn)
-        
+
         # Clear history button
-        clear_btn = QPushButton("Clear History")
-        clear_btn.setStyleSheet(
-            "QPushButton { background-color: #3a3a4a; color: #c0c0d0; border-radius: 4px;"
-            " padding: 4px 10px; font-size: 11px; }"
-            "QPushButton:hover { background-color: #4a4a5e; }"
-        )
+        clear_btn = QPushButton("Clear history")
+        clear_btn.setStyleSheet(ghost_button_qss())
         clear_btn.clicked.connect(self._clear_history)
         title_row.addWidget(clear_btn)
-        
+
         root.addLayout(title_row)
 
         # Chat history area
         self._history = QTextEdit()
         self._history.setReadOnly(True)
         self._history.setStyleSheet(
-            "background-color: #1e1e2e; color: #c8c8d8; border-radius: 6px;"
-            "padding: 8px; font-size: 13px; border: 1px solid #3a3a4a;"
+            f"""
+            QTextEdit {{
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_MD}px;
+                padding: 10px;
+                font-size: {Font.SIZE_MD}px;
+            }}
+            """
         )
         self._history.setPlaceholderText(
             "Your conversation with the AI will appear here.\n\n"
@@ -177,24 +191,16 @@ class MemoPage(QWidget):
 
         # Input row
         input_row = QHBoxLayout()
-        input_row.setSpacing(6)
+        input_row.setSpacing(Size.SM)
 
         self._input = QLineEdit()
         self._input.setPlaceholderText("Type a memo or ask the AI…")
-        self._input.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0f0; border-radius: 4px;"
-            "padding: 6px 10px; border: 1px solid #4a4a5e; font-size: 13px;"
-        )
         self._input.returnPressed.connect(self._send_message)
         input_row.addWidget(self._input, stretch=1)
 
         self._send_btn = QPushButton("Send")
-        self._send_btn.setFixedWidth(70)
-        self._send_btn.setStyleSheet(
-            "QPushButton { background-color: #5c85d6; color: #ffffff; border-radius: 4px;"
-            " padding: 6px 12px; font-size: 13px; }"
-            "QPushButton:hover { background-color: #6a95e6; }"
-        )
+        self._send_btn.setFixedWidth(80)
+        self._send_btn.setStyleSheet(primary_button_qss())
         self._send_btn.clicked.connect(self._send_message)
         input_row.addWidget(self._send_btn)
 
@@ -208,11 +214,14 @@ class MemoPage(QWidget):
             shortcut.activated.connect(self._send_message)
 
         note = QLabel(
-            "The AI will turn memos into structured Items (Task/Event/Note/Goal). "
+            "The AI turns memos into structured Items (Task / Event / Note / Goal). "
+            "Without an API key it saves a Note in Backlog. "
             "Press Enter or Ctrl+Enter to send."
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color: #505060; font-size: 11px;")
+        note.setStyleSheet(
+            f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;"
+        )
         root.addWidget(note)
 
     def _install_openclaw_cli(self) -> None:
@@ -289,8 +298,11 @@ class MemoPage(QWidget):
         }.get(provider, "AI")
 
         if models and (api_key or key_optional):
-            self._status_label.setText(f"🟢 {provider_name} Connected")
-            self._status_label.setStyleSheet("color: #5cd685; font-size: 11px;")
+            self._status_label.setText(f"●  {provider_name} online")
+            self._status_label.setStyleSheet(
+                f"color: {Color.SUCCESS}; font-size: {Font.SIZE_XS}px; "
+                f"font-weight: {Font.WEIGHT_MEDIUM};"
+            )
             if len(models) == 1:
                 tooltip = f"Model: {models[0]}"
             else:
@@ -301,8 +313,11 @@ class MemoPage(QWidget):
                 tooltip = f"{provider_name} • {tooltip}"
             self._status_label.setToolTip(tooltip)
         else:
-            self._status_label.setText("🔴 AI Offline")
-            self._status_label.setStyleSheet("color: #d65c5c; font-size: 11px;")
+            self._status_label.setText("●  AI offline")
+            self._status_label.setStyleSheet(
+                f"color: {Color.DANGER}; font-size: {Font.SIZE_XS}px; "
+                f"font-weight: {Font.WEIGHT_MEDIUM};"
+            )
             if provider in {"local", "custom"} and base_url:
                 self._status_label.setToolTip("Configure a model name to enable local AI")
             else:
@@ -323,7 +338,9 @@ class MemoPage(QWidget):
                         elif role == "ai":
                             self._history.append(f"<b>AI:</b> {html.escape(content)}")
                         elif role == "system":
-                            self._history.append(f"<i style='color:#7ab97a;'>{html.escape(content)}</i>")
+                            self._history.append(
+                                f"<i style='color:{Color.SUCCESS};'>{html.escape(content)}</i>"
+                            )
             except Exception:
                 pass
 
@@ -393,14 +410,18 @@ class MemoPage(QWidget):
     def _on_memo_result(self, results: object, error: str) -> None:
         if error:
             error_msg = f"Error: {error[:100]}" if error else "An error occurred"
-            self._history.append(f"<i style='color:#b97a7a;'>{html.escape(error_msg)}</i>")
+            self._history.append(
+                f"<i style='color:{Color.DANGER};'>{html.escape(error_msg)}</i>"
+            )
             self._chat_messages.append({"role": "system", "content": error_msg})
             show_app_message(self, error_msg, 3500)
             return
 
         candidates = [entry for entry in (results if isinstance(results, list) else []) if isinstance(entry, dict)]
         if not candidates:
-            self._history.append("<i style='color:#606070;'>No AI response.</i>")
+            self._history.append(
+                f"<i style='color:{Color.TEXT_FAINT};'>No AI response.</i>"
+            )
             self._chat_messages.append({"role": "system", "content": "No AI response."})
             show_app_message(self, "No AI response", 1800)
             return
@@ -432,14 +453,18 @@ class MemoPage(QWidget):
                 False,
             )
             if not ok:
-                self._history.append("<i style='color:#808090;'>Draft selection canceled.</i>")
+                self._history.append(
+                    f"<i style='color:{Color.TEXT_FAINT};'>Draft selection canceled.</i>"
+                )
                 self._chat_messages.append({"role": "system", "content": "Draft selection canceled."})
                 show_app_message(self, "Draft selection canceled", 1800)
                 return
             selected = candidates[options.index(choice)]
             chosen_model = str(selected.get("model", "unknown"))
             selected_msg = f"Selected draft: {chosen_model}"
-            self._history.append(f"<i style='color:#7ab97a;'>{html.escape(selected_msg)}</i>")
+            self._history.append(
+                f"<i style='color:{Color.SUCCESS};'>{html.escape(selected_msg)}</i>"
+            )
             self._chat_messages.append({"role": "system", "content": selected_msg})
 
         ai_text = str(selected.get("ai_text", "") or "")
@@ -451,13 +476,17 @@ class MemoPage(QWidget):
             self._chat_messages.append({"role": "ai", "content": ai_text})
         if created:
             msg = f"Created {created} item(s) and refreshed views."
-            self._history.append(f"<i style='color:#7ab97a;'>{html.escape(msg)}</i>")
+            self._history.append(
+                f"<i style='color:{Color.SUCCESS};'>{html.escape(msg)}</i>"
+            )
             self._chat_messages.append({"role": "system", "content": msg})
             show_app_message(self, msg, 2500)
             if self._on_items_created:
                 self._on_items_created()
         elif not ai_text:
-            self._history.append("<i style='color:#606070;'>No AI response.</i>")
+            self._history.append(
+                f"<i style='color:{Color.TEXT_FAINT};'>No AI response.</i>"
+            )
             self._chat_messages.append({"role": "system", "content": "No AI response."})
 
     def _persist_items(self, items: list[GeneratedItem]) -> int:

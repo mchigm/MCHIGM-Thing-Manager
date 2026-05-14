@@ -27,6 +27,14 @@ from src.scheduling import occurrence_windows_for_item
 from src.ui.feedback import show_app_message
 from src.settings_store import load_settings
 from src.ui.search_filters import parse_search_text
+from src.ui.theme import (
+    Color,
+    Font,
+    Size,
+    ghost_button_qss,
+    primary_button_qss,
+    section_title_qss,
+)
 
 
 class DraggableTaskCard(QLabel):
@@ -36,10 +44,25 @@ class DraggableTaskCard(QLabel):
         super().__init__(text, parent)
         self.item_id = item_id
         self.setWordWrap(True)
-        left_border = f"3px solid {scenario_color}" if scenario_color else "none"
+        left_border = (
+            f"4px solid {scenario_color}" if scenario_color else f"1px solid {Color.BORDER}"
+        )
         self.setStyleSheet(
-            f"background-color: #2a2a3a; color: #d0d0e0; border-radius: 4px;"
-            f"padding: 8px; font-size: 12px; border: 1px solid #3a3a4e; border-left: {left_border};"
+            f"""
+            QLabel {{
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                border: 1px solid {Color.BORDER};
+                border-left: {left_border};
+                border-radius: {Size.RADIUS_MD}px;
+                padding: 8px 10px;
+                font-size: {Font.SIZE_SM}px;
+            }}
+            QLabel:hover {{
+                background-color: {Color.SURFACE_HOVER};
+                border-color: {Color.BORDER_STRONG};
+            }}
+            """
         )
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
@@ -113,7 +136,7 @@ class ScalableCalendar(QCalendarWidget):
         self._zoom_level = 1.0
         self._scheduled_dates: dict[QDate, list[tuple[str, str]]] = {}  # date -> [(title, color)]
         self._highlight_format = QTextCharFormat()
-        self._highlight_format.setBackground(QBrush(QColor("#3a5a7a")))
+        self._highlight_format.setBackground(QBrush(QColor(Color.ACCENT_SUBTLE)))
 
     def set_scheduled_items(self, items_data: list[dict]) -> None:
         """Update the calendar with scheduled item indicators.
@@ -127,7 +150,7 @@ class ScalableCalendar(QCalendarWidget):
             if start_time:
                 start_tz = start_time if start_time.tzinfo else start_time.replace(tzinfo=timezone.utc)
                 qdate = QDate(start_tz.year, start_tz.month, start_tz.day)
-                color = data.get('scenario_color', "#5c85d6")
+                color = data.get('scenario_color', Color.ACCENT)
                 if qdate not in self._scheduled_dates:
                     self._scheduled_dates[qdate] = []
                 self._scheduled_dates[qdate].append((data['title'], color))
@@ -220,9 +243,37 @@ class ScalableCalendar(QCalendarWidget):
         self._zoom_level = zoom_level
         font_size = int(12 * zoom_level)
         self.setStyleSheet(
-            f"QCalendarWidget {{ background-color: #2a2a3a; color: #c8c8d8; font-size: {font_size}px; }}"
-            f"QCalendarWidget QAbstractItemView {{ background-color: #2a2a3a; color: #c8c8d8;"
-            f" selection-background-color: #5c85d6; font-size: {font_size}px; }}"
+            f"""
+            QCalendarWidget {{
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                font-size: {font_size}px;
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_MD}px;
+            }}
+            QCalendarWidget QAbstractItemView {{
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                selection-background-color: {Color.ACCENT};
+                selection-color: {Color.TEXT_INVERSE};
+                font-size: {font_size}px;
+                outline: none;
+            }}
+            QCalendarWidget QWidget#qt_calendar_navigationbar {{
+                background-color: {Color.SURFACE_ALT};
+                border-bottom: 1px solid {Color.BORDER};
+            }}
+            QCalendarWidget QToolButton {{
+                background-color: transparent;
+                color: {Color.TEXT};
+                border: none;
+                padding: 4px 8px;
+            }}
+            QCalendarWidget QToolButton:hover {{
+                background-color: {Color.SURFACE_HOVER};
+                border-radius: {Size.RADIUS_SM}px;
+            }}
+            """
         )
 
 
@@ -243,14 +294,20 @@ class TimetablePage(QWidget):
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(Size.MD)
 
         # Title row
         title_row = QHBoxLayout()
-        title = QLabel("Timetable — Calendar")
-        title.setStyleSheet("color: #c8c8d8; font-size: 18px; font-weight: bold;")
+        title_row.setSpacing(Size.SM)
+        title = QLabel("Timetable")
+        title.setStyleSheet(section_title_qss())
+        subtitle = QLabel("Calendar")
+        subtitle.setStyleSheet(
+            f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_SM}px;"
+        )
         title_row.addWidget(title)
+        title_row.addWidget(subtitle)
         title_row.addStretch()
 
         # View switch buttons
@@ -265,8 +322,10 @@ class TimetablePage(QWidget):
             title_row.addWidget(btn)
 
         # Add zoom controls
-        zoom_label = QLabel("Zoom:")
-        zoom_label.setStyleSheet("color: #a0a0b0; font-size: 12px;")
+        zoom_label = QLabel("Zoom")
+        zoom_label.setStyleSheet(
+            f"color: {Color.TEXT_MUTED}; font-size: {Font.SIZE_SM}px;"
+        )
         title_row.addWidget(zoom_label)
 
         self._zoom_slider = QSlider(Qt.Orientation.Horizontal)
@@ -275,9 +334,23 @@ class TimetablePage(QWidget):
         self._zoom_slider.setValue(100)
         self._zoom_slider.setFixedWidth(120)
         self._zoom_slider.setStyleSheet(
-            "QSlider::groove:horizontal { background: #2a2a3a; height: 4px; border-radius: 2px; }"
-            "QSlider::handle:horizontal { background: #5c85d6; width: 12px; height: 12px;"
-            " margin: -4px 0; border-radius: 6px; }"
+            f"""
+            QSlider::groove:horizontal {{
+                background: {Color.SURFACE_ALT};
+                height: 4px;
+                border-radius: 2px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {Color.ACCENT};
+                width: 14px;
+                height: 14px;
+                margin: -5px 0;
+                border-radius: 7px;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: {Color.ACCENT_HOVER};
+            }}
+            """
         )
         self._zoom_slider.valueChanged.connect(self._on_zoom_changed)
         title_row.addWidget(self._zoom_slider)
@@ -301,18 +374,28 @@ class TimetablePage(QWidget):
 
         # Scheduled items for selected date
         scheduled_header = QHBoxLayout()
-        scheduled_label = QLabel("Scheduled for selected date:")
-        scheduled_label.setStyleSheet("color: #a0a0b0; font-size: 12px; font-weight: bold;")
+        scheduled_label = QLabel("Scheduled for selected date")
+        scheduled_label.setStyleSheet(
+            f"color: {Color.TEXT_MUTED}; font-size: {Font.SIZE_SM}px; font-weight: {Font.WEIGHT_SEMIBOLD};"
+        )
         scheduled_header.addWidget(scheduled_label)
         scheduled_header.addStretch()
-        
+
         # Add item button for selected date
         add_scheduled_btn = QPushButton("+")
         add_scheduled_btn.setFixedSize(24, 24)
         add_scheduled_btn.setStyleSheet(
-            "QPushButton { background-color: #5cd685; color: #1a1a2e; border-radius: 12px;"
-            " font-size: 14px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #6ce695; }"
+            f"""
+            QPushButton {{
+                background-color: {Color.ACCENT};
+                color: {Color.TEXT_INVERSE};
+                border: none;
+                border-radius: 12px;
+                font-size: {Font.SIZE_MD}px;
+                font-weight: {Font.WEIGHT_SEMIBOLD};
+            }}
+            QPushButton:hover {{ background-color: {Color.ACCENT_HOVER}; }}
+            """
         )
         add_scheduled_btn.setToolTip("Create new item for selected date")
         add_scheduled_btn.clicked.connect(self._create_item_for_date)
@@ -341,12 +424,16 @@ class TimetablePage(QWidget):
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(8, 0, 0, 0)
 
-        sidebar_title = QLabel("Unscheduled Tasks")
-        sidebar_title.setStyleSheet("color: #a0a0b0; font-size: 13px; font-weight: bold;")
+        sidebar_title = QLabel("Unscheduled")
+        sidebar_title.setStyleSheet(
+            f"color: {Color.TEXT}; font-size: {Font.SIZE_MD}px; font-weight: {Font.WEIGHT_SEMIBOLD};"
+        )
         sidebar_layout.addWidget(sidebar_title)
 
-        sidebar_info = QLabel("Drag tasks to the calendar to schedule them.")
-        sidebar_info.setStyleSheet("color: #707080; font-size: 10px;")
+        sidebar_info = QLabel("Drag onto the calendar to schedule.")
+        sidebar_info.setStyleSheet(
+            f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;"
+        )
         sidebar_info.setWordWrap(True)
         sidebar_layout.addWidget(sidebar_info)
 
@@ -366,32 +453,46 @@ class TimetablePage(QWidget):
         # Statistics section
         stats_frame = QFrame()
         stats_frame.setStyleSheet(
-            "QFrame { background-color: #2a2a3a; border-radius: 6px; padding: 4px; }"
+            f"""
+            QFrame {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS_MD}px;
+            }}
+            """
         )
         stats_layout = QVBoxLayout(stats_frame)
-        stats_layout.setContentsMargins(8, 8, 8, 8)
-        stats_layout.setSpacing(4)
-        
-        stats_title = QLabel("📊 Statistics")
-        stats_title.setStyleSheet("color: #a0a0b0; font-size: 12px; font-weight: bold;")
+        stats_layout.setContentsMargins(Size.MD, Size.MD, Size.MD, Size.MD)
+        stats_layout.setSpacing(Size.XS)
+
+        stats_title = QLabel("Statistics")
+        stats_title.setStyleSheet(
+            f"color: {Color.TEXT_MUTED}; font-size: {Font.SIZE_XS}px; "
+            f"font-weight: {Font.WEIGHT_SEMIBOLD}; letter-spacing: 0.05em;"
+        )
         stats_layout.addWidget(stats_title)
-        
+
         # Stats labels
         self._stats_labels = {}
         stat_items = [
-            ("today", "Today:"),
-            ("this_week", "This Week:"),
-            ("this_month", "This Month:"),
-            ("today_workload", "Today Workload:"),
-            ("avg_time_week", "Avg Time/Week:"),
+            ("today", "Today"),
+            ("this_week", "This week"),
+            ("this_month", "This month"),
+            ("today_workload", "Today workload"),
+            ("avg_time_week", "Time / week"),
         ]
         for key, label_text in stat_items:
             row = QHBoxLayout()
             label = QLabel(label_text)
-            label.setStyleSheet("color: #808090; font-size: 10px;")
+            label.setStyleSheet(
+                f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px;"
+            )
             row.addWidget(label)
             value_label = QLabel("0")
-            value_label.setStyleSheet("color: #c8c8d8; font-size: 10px; font-weight: bold;")
+            value_label.setStyleSheet(
+                f"color: {Color.TEXT}; font-size: {Font.SIZE_XS}px; "
+                f"font-weight: {Font.WEIGHT_SEMIBOLD};"
+            )
             value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
             row.addWidget(value_label)
             stats_layout.addLayout(row)
@@ -408,17 +509,9 @@ class TimetablePage(QWidget):
     def _update_view_button_style(self, btn: QPushButton, active: bool) -> None:
         """Update the style of a view button."""
         if active:
-            btn.setStyleSheet(
-                "QPushButton { background-color: #5c85d6; color: #ffffff; border-radius: 4px;"
-                " padding: 4px 8px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #6a95e6; }"
-            )
+            btn.setStyleSheet(primary_button_qss())
         else:
-            btn.setStyleSheet(
-                "QPushButton { background-color: #3a3a4a; color: #c0c0d0; border-radius: 4px;"
-                " padding: 4px 8px; }"
-                "QPushButton:hover { background-color: #4a4a5e; }"
-            )
+            btn.setStyleSheet(ghost_button_qss())
 
     def _switch_view(self, view: str) -> None:
         """Switch between Day, Week, and Month views."""
@@ -506,19 +599,29 @@ class TimetablePage(QWidget):
                     occurrences.append((start, item))
 
         if not occurrences:
-            label = QLabel("No items scheduled for this date.")
-            label.setStyleSheet("color: #606070; font-size: 11px;")
+            label = QLabel("Nothing scheduled.")
+            label.setStyleSheet(
+                f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px; padding: 4px;"
+            )
             self._scheduled_list_layout.insertWidget(0, label)
             return
 
         for start, item in sorted(occurrences, key=lambda row: row[0]):
             time_str = start.strftime("%H:%M")
-            color = item.scenario.color if item.scenario else "#5c85d6"
-            type_icon = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(item.type.value, "📋")
-            label = QLabel(f"{type_icon} {time_str} {item.title}")
+            color = item.scenario.color if item.scenario else Color.ACCENT
+            label = QLabel(f"{time_str}   {item.title}")
             label.setStyleSheet(
-                f"color: #c8c8d8; font-size: 11px; padding: 4px; "
-                f"background-color: #2a2a3a; border-left: 3px solid {color}; border-radius: 2px;"
+                f"""
+                QLabel {{
+                    color: {Color.TEXT};
+                    font-size: {Font.SIZE_XS}px;
+                    padding: 6px 8px;
+                    background-color: {Color.SURFACE};
+                    border: 1px solid {Color.BORDER};
+                    border-left: 3px solid {color};
+                    border-radius: {Size.RADIUS_SM}px;
+                }}
+                """
             )
             label.setWordWrap(True)
             self._scheduled_list_layout.insertWidget(self._scheduled_list_layout.count() - 1, label)
@@ -609,17 +712,17 @@ class TimetablePage(QWidget):
                 widget.deleteLater()
 
         if not unscheduled_data:
-            label = QLabel("Nothing unscheduled — drag new tasks here later.")
-            label.setStyleSheet("color: #606070; font-size: 11px;")
+            label = QLabel("Nothing unscheduled.")
+            label.setStyleSheet(
+                f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS}px; padding: 12px 4px;"
+            )
             label.setWordWrap(True)
             self._unscheduled_layout.insertWidget(0, label)
         else:
             for data in unscheduled_data:
-                # Add type icon and scenario color
-                type_icon = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(data['type_value'], "📋")
-                text = f"{type_icon} {data['title']}"
+                text = data['title']
                 if data['deadline']:
-                    text += f"\nDeadline: {data['deadline'].strftime('%b %d')}"
+                    text += f"\n{data['deadline'].strftime('%b %d')}"
                 card = DraggableTaskCard(text, data['id'], data['scenario_color'])
                 self._unscheduled_layout.insertWidget(self._unscheduled_layout.count() - 1, card)
 

@@ -38,13 +38,25 @@ from src.database.models import Item, ItemStatus, ItemType, ItemTemplate, Scenar
 from src.scheduling import calculate_buffer_minutes
 from src.ui.feedback import show_app_message
 from src.ui.search_filters import parse_search_text
+from src.ui.theme import (
+    Color,
+    Font,
+    Size,
+    card_qss,
+    chip_qss,
+    column_body_qss,
+    column_header_qss,
+    danger_button_qss,
+    ghost_button_qss,
+    primary_button_qss,
+)
 from src.settings_store import load_settings, save_settings
 
 _COLUMN_COLORS = {
-    ItemStatus.BACKLOG: "#4a4a5a",
-    ItemStatus.TODO:    "#3a5a7a",
-    ItemStatus.DOING:   "#5a4a7a",
-    ItemStatus.DONE:    "#3a6a4a",
+    ItemStatus.BACKLOG: Color.COL_BACKLOG,
+    ItemStatus.TODO:    Color.COL_TODO,
+    ItemStatus.DOING:   Color.COL_DOING,
+    ItemStatus.DONE:    Color.COL_DONE,
 }
 _LEVEL_PREFIX = "!level:"
 _LINK_PATTERN = re.compile(
@@ -150,31 +162,21 @@ class DraggableCard(QLabel):
 
     def _update_style(self):
         """Update card style based on selection state."""
-        # Determine border style priority:
-        # selected > emergency level accent > deadline state.
-        if self._is_selected:
-            border = "2px solid #5cd685"  # Green for selected
-            bg = "#4a4a60"
-        elif self._accent_color:
-            border = f"2px solid {self._accent_color}"
-            bg = "#3c3c50"
+        # Priority: selected > emergency-level accent > deadline state
+        accent: str | None = None
+        if self._accent_color:
+            accent = self._accent_color
         elif self._deadline_status == "overdue":
-            border = "2px solid #d65c5c"
-            bg = "#3c3c50"
+            accent = Color.DANGER
         elif self._deadline_status == "urgent":
-            border = "2px solid #d6a55c"
-            bg = "#3c3c50"
-        else:
-            border = "none"
-            bg = "#3c3c50"
-        
-        left_border = f"3px solid {self._scenario_color}" if self._scenario_color else "none"
-        padding = "6px" if self._compact else "8px"
-        font_size = "11px" if self._compact else "12px"
-        
+            accent = Color.WARNING
         self.setStyleSheet(
-            f"background-color: {bg}; color: #e0e0e0; border-radius: 4px;"
-            f"padding: {padding}; font-size: {font_size}; border: {border}; border-left: {left_border};"
+            card_qss(
+                accent=accent,
+                scenario_color=self._scenario_color,
+                selected=self._is_selected,
+                compact=self._compact,
+            )
         )
 
     def mousePressEvent(self, event):
@@ -280,19 +282,11 @@ class ItemDetailsDialog(QDialog):
         form = QFormLayout()
 
         self.title_edit = QLineEdit(item.title)
-        self.title_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
-        )
-        form.addRow("Title:", self.title_edit)
+        form.addRow("Title", self.title_edit)
 
         self.description_edit = QTextEdit(item.description or "")
-        self.description_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
-        )
         self.description_edit.setMinimumHeight(150)
-        form.addRow("Description:", self.description_edit)
+        form.addRow("Description", self.description_edit)
 
         # Emergency level
         self.level_combo = QComboBox()
@@ -304,7 +298,7 @@ class ItemDetailsDialog(QDialog):
             idx = self.level_combo.findText(current_level)
             if idx >= 0:
                 self.level_combo.setCurrentIndex(idx)
-        form.addRow("Emergency:", self.level_combo)
+        form.addRow("Emergency", self.level_combo)
 
         # Start time
         self.start_time_enabled = QCheckBox("Set start time")
@@ -326,7 +320,7 @@ class ItemDetailsDialog(QDialog):
         start_row = QHBoxLayout()
         start_row.addWidget(self.start_time_enabled)
         start_row.addWidget(self.start_time_edit)
-        form.addRow("Start:", start_row)
+        form.addRow("Start", start_row)
 
         # Deadline
         self.deadline_enabled = QCheckBox("Set deadline")
@@ -348,7 +342,7 @@ class ItemDetailsDialog(QDialog):
         deadline_row = QHBoxLayout()
         deadline_row.addWidget(self.deadline_enabled)
         deadline_row.addWidget(self.deadline_edit)
-        form.addRow("Deadline:", deadline_row)
+        form.addRow("Deadline", deadline_row)
 
         # Repeat schedule
         self.repeat_combo = QComboBox()
@@ -361,7 +355,7 @@ class ItemDetailsDialog(QDialog):
             if (self.repeat_combo.itemData(idx) or "") == repeat_pattern:
                 self.repeat_combo.setCurrentIndex(idx)
                 break
-        form.addRow("Repeat:", self.repeat_combo)
+        form.addRow("Repeat", self.repeat_combo)
 
         self.repeat_until_enabled = QCheckBox("Set repeat end")
         self.repeat_until_enabled.setChecked(bool(item.repeat_until))
@@ -382,7 +376,7 @@ class ItemDetailsDialog(QDialog):
         repeat_until_row = QHBoxLayout()
         repeat_until_row.addWidget(self.repeat_until_enabled)
         repeat_until_row.addWidget(self.repeat_until_edit)
-        form.addRow("Repeat Until:", repeat_until_row)
+        form.addRow("Repeat Until", repeat_until_row)
 
         # Read-only info
         info_text = f"""
@@ -400,9 +394,11 @@ class ItemDetailsDialog(QDialog):
             info_text += f"\nEnd: {item.end_time.strftime('%Y-%m-%d %H:%M')}"
 
         info_label = QLabel(info_text.strip())
-        info_label.setStyleSheet("color: #a0a0b0; font-size: 11px; padding: 8px;")
+        info_label.setStyleSheet(
+            f"color: {Color.TEXT_MUTED}; font-size: {Font.SIZE_SM}; padding: 8px;"
+        )
         info_label.setWordWrap(True)
-        form.addRow("Info:", info_label)
+        form.addRow("Info", info_label)
         
         # Links section - extract URLs from description and saved link list
         links = self._extract_links(item.description or "")
@@ -417,17 +413,13 @@ class ItemDetailsDialog(QDialog):
             links_html = "<br>".join([self._link_markup(url) for url in links[:5]])
             links_label.setText(links_html)
             links_label.setStyleSheet("padding: 4px;")
-            form.addRow("Links:", links_label)
-        
+            form.addRow("Links", links_label)
+
         # Links input field
         self.links_edit = QTextEdit("\n".join(self._parse_links_text(item.links or "")))
         self.links_edit.setPlaceholderText("Add links (one per line or comma-separated)")
-        self.links_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
-        )
         self.links_edit.setMaximumHeight(80)
-        form.addRow("Add Links:", self.links_edit)
+        form.addRow("Add Links", self.links_edit)
 
         layout.addLayout(form)
 
@@ -436,19 +428,14 @@ class ItemDetailsDialog(QDialog):
         
         # Delete button on the left
         delete_btn = QPushButton("Delete")
-        delete_btn.setStyleSheet(
-            "QPushButton { background-color: #8b3a3a; color: #ffffff; border-radius: 4px;"
-            " padding: 6px 12px; } QPushButton:hover { background-color: #a04a4a; }"
-        )
+        delete_btn.setStyleSheet(danger_button_qss())
+        delete_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         delete_btn.clicked.connect(self._delete_item)
         buttons_layout.addWidget(delete_btn)
-        
+
         # Duplicate button
         duplicate_btn = QPushButton("Duplicate")
-        duplicate_btn.setStyleSheet(
-            "QPushButton { background-color: #3a5a7a; color: #ffffff; border-radius: 4px;"
-            " padding: 6px 12px; } QPushButton:hover { background-color: #4a6a8a; }"
-        )
+        duplicate_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         duplicate_btn.clicked.connect(lambda: self._duplicate_item(item))
         buttons_layout.addWidget(duplicate_btn)
         
@@ -654,10 +641,10 @@ class NewItemDialog(QDialog):
 
         # Template selector at the top
         template_row = QHBoxLayout()
-        template_label = QLabel("Template:")
-        template_label.setStyleSheet("color: #a0a0b0;")
+        template_label = QLabel("Template")
+        template_label.setStyleSheet(f"color: {Color.TEXT_MUTED};")
         template_row.addWidget(template_label)
-        
+
         self.template_combo = QComboBox()
         self.template_combo.addItem("None", None)
         with SessionLocal() as session:
@@ -665,50 +652,38 @@ class NewItemDialog(QDialog):
             for t in templates:
                 self.template_combo.addItem(t.name, t.id)
         self.template_combo.currentIndexChanged.connect(self._load_template)
-        self.template_combo.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
-        )
         template_row.addWidget(self.template_combo)
         template_row.addStretch()
         layout.addLayout(template_row)
 
         form = QFormLayout()
+        form.setSpacing(Size.SM)
 
         self.title_edit = QLineEdit()
-        self.title_edit.setPlaceholderText("Enter item title...")
-        self.title_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 6px;"
-        )
+        self.title_edit.setPlaceholderText("Enter item title…")
         if self._template_data.get('title'):
             self.title_edit.setText(self._template_data['title'])
-        form.addRow("Title:", self.title_edit)
+        form.addRow("Title", self.title_edit)
         self.title_edit.returnPressed.connect(self._create_item)
 
         self.description_edit = QTextEdit()
-        self.description_edit.setPlaceholderText("Optional description...")
-        self.description_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
-        )
+        self.description_edit.setPlaceholderText("Optional description…")
         self.description_edit.setMaximumHeight(80)
         if self._template_data.get('description'):
             self.description_edit.setPlainText(self._template_data['description'])
-        form.addRow("Description:", self.description_edit)
+        form.addRow("Description", self.description_edit)
 
         # Type selector
         self.type_combo = QComboBox()
         for item_type in ItemType:
-            emoji = {"Task": "📋", "Event": "📅", "Note": "📝", "Goal": "🎯"}.get(item_type.value, "📋")
-            self.type_combo.addItem(f"{emoji} {item_type.value}", item_type)
+            self.type_combo.addItem(item_type.value, item_type)
         self.type_combo.setCurrentIndex(0)
         if self._template_data.get('type'):
             for i in range(self.type_combo.count()):
                 if self.type_combo.itemData(i) == self._template_data['type']:
                     self.type_combo.setCurrentIndex(i)
                     break
-        form.addRow("Type:", self.type_combo)
+        form.addRow("Type", self.type_combo)
 
         # Scenario selector
         self.scenario_combo = QComboBox()
@@ -721,7 +696,7 @@ class NewItemDialog(QDialog):
             idx = self.scenario_combo.findText(self._template_data['scenario'])
             if idx >= 0:
                 self.scenario_combo.setCurrentIndex(idx)
-        form.addRow("Scenario:", self.scenario_combo)
+        form.addRow("Scenario", self.scenario_combo)
 
         # Start time
         self.start_time_enabled = QCheckBox("Set start time")
@@ -747,7 +722,7 @@ class NewItemDialog(QDialog):
         start_row = QHBoxLayout()
         start_row.addWidget(self.start_time_enabled)
         start_row.addWidget(self.start_time_edit)
-        form.addRow("Start:", start_row)
+        form.addRow("Start", start_row)
 
         # Deadline
         self.deadline_enabled = QCheckBox("Set deadline")
@@ -770,7 +745,7 @@ class NewItemDialog(QDialog):
         deadline_row = QHBoxLayout()
         deadline_row.addWidget(self.deadline_enabled)
         deadline_row.addWidget(self.deadline_edit)
-        form.addRow("Deadline:", deadline_row)
+        form.addRow("Deadline", deadline_row)
 
         # Repeat schedule
         self.repeat_combo = QComboBox()
@@ -783,7 +758,7 @@ class NewItemDialog(QDialog):
             if (self.repeat_combo.itemData(idx) or "") == pattern:
                 self.repeat_combo.setCurrentIndex(idx)
                 break
-        form.addRow("Repeat:", self.repeat_combo)
+        form.addRow("Repeat", self.repeat_combo)
 
         self.repeat_until_enabled = QCheckBox("Set repeat end")
         repeat_until_dt = self._template_data.get("repeat_until")
@@ -805,7 +780,7 @@ class NewItemDialog(QDialog):
         repeat_until_row = QHBoxLayout()
         repeat_until_row.addWidget(self.repeat_until_enabled)
         repeat_until_row.addWidget(self.repeat_until_edit)
-        form.addRow("Repeat Until:", repeat_until_row)
+        form.addRow("Repeat Until", repeat_until_row)
 
         # Estimated time (minutes)
         time_row = QHBoxLayout()
@@ -813,21 +788,19 @@ class NewItemDialog(QDialog):
         self.estimated_time_edit.setRange(0, 9999)
         self.estimated_time_edit.setSuffix(" min")
         self.estimated_time_edit.setSpecialValueText("Not set")
-        self.estimated_time_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 4px;"
-        )
         if self._template_data.get('estimated_time'):
             self.estimated_time_edit.setValue(self._template_data['estimated_time'])
         time_row.addWidget(self.estimated_time_edit)
-        
+
         # Buffer time indicator
         self.buffer_label = QLabel("(+0 min buffer)")
-        self.buffer_label.setStyleSheet("color: #808090; font-size: 11px;")
+        self.buffer_label.setStyleSheet(
+            f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_XS};"
+        )
         self.estimated_time_edit.valueChanged.connect(self._update_buffer_label)
         time_row.addWidget(self.buffer_label)
         time_row.addStretch()
-        form.addRow("Est. Time:", time_row)
+        form.addRow("Est. Time", time_row)
 
         # Workload (1-5 scale)
         workload_row = QHBoxLayout()
@@ -843,30 +816,30 @@ class NewItemDialog(QDialog):
         )
         workload_row.addWidget(self.workload_combo)
         workload_row.addStretch()
-        form.addRow("Workload:", workload_row)
+        form.addRow("Workload", workload_row)
 
         # Tags input
         self.tags_edit = QLineEdit()
         self.tags_edit.setPlaceholderText("Enter tags separated by comma (e.g., #urgent, #work)")
-        self.tags_edit.setStyleSheet(
-            "background-color: #2a2a3a; color: #e0e0e0; border: 1px solid #3a3a4e;"
-            "border-radius: 4px; padding: 6px;"
-        )
         if self._template_data.get('tags'):
             self.tags_edit.setText(self._template_data['tags'])
-        form.addRow("Tags:", self.tags_edit)
-        
-        # Existing tags for quick selection
+        form.addRow("Tags", self.tags_edit)
+
+        # Existing tags for quick selection — styled as soft chips
         self.tags_buttons_layout = QHBoxLayout()
+        self.tags_buttons_layout.setSpacing(6)
         with SessionLocal() as session:
             existing_tags = session.query(Tag).order_by(Tag.name).limit(8).all()
             for tag in existing_tags:
                 btn = QPushButton(tag.name)
                 btn.setStyleSheet(
-                    f"background-color: {tag.color}; color: white; border-radius: 10px;"
-                    "padding: 2px 8px; font-size: 10px;"
+                    f"QPushButton {{ background-color: {Color.SURFACE_ALT};"
+                    f" color: {Color.TEXT}; border: 1px solid {tag.color};"
+                    f" border-radius: 10px; padding: 2px 10px; font-size: 11px; }}"
+                    f"QPushButton:hover {{ background-color: {tag.color}; color: {Color.TEXT_INVERSE}; }}"
                 )
-                btn.setFixedHeight(20)
+                btn.setFixedHeight(22)
+                btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
                 btn.clicked.connect(lambda checked, t=tag.name: self._add_tag(t))
                 self.tags_buttons_layout.addWidget(btn)
         self.tags_buttons_layout.addStretch()
@@ -876,19 +849,21 @@ class NewItemDialog(QDialog):
 
         # Buttons
         button_row = QHBoxLayout()
-        
+
         save_template_btn = QPushButton("Save as Template")
-        save_template_btn.setStyleSheet(
-            "background-color: #3a5a7a; color: #e0e0e0; border-radius: 4px; padding: 6px 12px;"
-        )
+        save_template_btn.setStyleSheet(ghost_button_qss())
+        save_template_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         save_template_btn.clicked.connect(self._save_as_template)
         button_row.addWidget(save_template_btn)
-        
+
         button_row.addStretch()
-        
+
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        save_btn = button_box.button(QDialogButtonBox.StandardButton.Save)
+        if save_btn is not None:
+            save_btn.setStyleSheet(primary_button_qss())
         button_box.accepted.connect(self._create_item)
         button_box.rejected.connect(self.reject)
         button_row.addWidget(button_box)
@@ -1097,64 +1072,68 @@ class KanbanColumn(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        self.setMinimumWidth(200)
+        self.setMinimumWidth(220)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # Wrap the whole column in a panel so header + body share one rounded shell
+        self.setStyleSheet(column_body_qss())
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Header with title, count badge, and add button
+        # Header — calm: dark surface with a colored 2px top accent strip
+        accent = _COLUMN_COLORS.get(self._status, Color.BORDER_STRONG)
         header = QWidget()
-        color = _COLUMN_COLORS.get(self._status, "#4a4a4a")
-        header.setStyleSheet(
-            f"background-color: {color}; border-top-left-radius: 6px; border-top-right-radius: 6px;"
-        )
-        header.setFixedHeight(44)
-        
+        header.setStyleSheet(column_header_qss(accent))
+        header.setFixedHeight(40)
+
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(8, 4, 8, 4)
-        header_layout.setSpacing(6)
-        
-        title_label = QLabel(self._status.value)
-        title_label.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px; background: transparent;")
-        header_layout.addWidget(title_label)
-        
-        # Count badge
-        self._count_label = QLabel("0")
-        self._count_label.setStyleSheet(
-            "background-color: rgba(255,255,255,0.2); color: #ffffff; font-size: 11px;"
-            "padding: 2px 6px; border-radius: 8px;"
+        header_layout.setContentsMargins(Size.MD, Size.SM, Size.SM, Size.SM)
+        header_layout.setSpacing(Size.SM)
+
+        title_label = QLabel(self._status.value.upper())
+        title_label.setStyleSheet(
+            f"color: {Color.TEXT}; font-weight: {Font.WEIGHT_SEMIBOLD}; "
+            f"font-size: {Font.SIZE_SM}; letter-spacing: 0.6px; background: transparent;"
         )
+        header_layout.addWidget(title_label)
+
+        # Count chip
+        self._count_label = QLabel("0")
+        self._count_label.setStyleSheet(chip_qss(Color.TEXT_MUTED))
         header_layout.addWidget(self._count_label)
-        
+
         header_layout.addStretch()
-        
-        # Add button
+
+        # Add button — subtle, themed
         add_btn = QPushButton("+")
         add_btn.setFixedSize(24, 24)
+        add_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         add_btn.setStyleSheet(
-            "QPushButton { background-color: rgba(255,255,255,0.2); color: #ffffff; border-radius: 12px;"
-            " font-size: 16px; font-weight: bold; border: none; }"
-            "QPushButton:hover { background-color: rgba(255,255,255,0.3); }"
+            f"QPushButton {{ background-color: transparent; color: {Color.TEXT_MUTED};"
+            f" border: 1px solid {Color.BORDER}; border-radius: 12px;"
+            f" font-size: 14px; font-weight: 600; }}"
+            f"QPushButton:hover {{ background-color: {Color.SURFACE_HOVER};"
+            f" color: {Color.TEXT}; border-color: {Color.BORDER_STRONG}; }}"
         )
-        add_btn.setToolTip(f"Add new item to {self._status.value}")
+        add_btn.setToolTip(f"Add item to {self._status.value}")
         add_btn.clicked.connect(self._add_new_item)
         header_layout.addWidget(add_btn)
-        
+
         root.addWidget(header)
 
-        # Scroll area for cards
+        # Scroll area for cards (transparent so the column body shows through)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("background-color: #2e2e3e;")
+        scroll.setStyleSheet("background: transparent;")
+        scroll.viewport().setStyleSheet("background: transparent;")
 
         self._cards_widget = QWidget()
-        self._cards_widget.setStyleSheet("background-color: #2e2e3e;")
+        self._cards_widget.setStyleSheet("background: transparent;")
         self._cards_layout = QVBoxLayout(self._cards_widget)
-        self._cards_layout.setContentsMargins(8, 8, 8, 8)
-        self._cards_layout.setSpacing(6)
+        self._cards_layout.setContentsMargins(Size.SM, Size.SM, Size.SM, Size.SM)
+        self._cards_layout.setSpacing(Size.SM)
         self._cards_layout.addStretch()
 
         scroll.setWidget(self._cards_widget)
@@ -1258,11 +1237,13 @@ class KanbanColumn(QWidget):
 
     def _add_placeholder(self) -> None:
         """Add a placeholder label when column is empty."""
-        label = QLabel("No items yet.")
+        label = QLabel("No items yet")
         label.setWordWrap(True)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setStyleSheet(
-            "background-color: #3c3c50; color: #e0e0e0; border-radius: 4px;"
-            "padding: 8px; font-size: 12px;"
+            f"background-color: transparent; color: {Color.TEXT_FAINT};"
+            f"border: 1px dashed {Color.BORDER}; border-radius: {Size.RADIUS_MD}px;"
+            f"padding: 18px; font-size: {Font.SIZE_SM};"
         )
         self._cards_layout.insertWidget(self._cards_layout.count() - 1, label)
 
@@ -1298,32 +1279,37 @@ class TodosPage(QWidget):
 
         # Title row with batch edit button
         title_row = QHBoxLayout()
-        title = QLabel("TODOs — Action Hub")
-        title.setStyleSheet("color: #c8c8d8; font-size: 18px; font-weight: bold;")
-        title_row.addWidget(title)
-        
-        title_row.addStretch()
-        
-        # Batch edit button (hidden by default)
-        self._batch_edit_btn = QPushButton("Edit Selected (0)")
-        self._batch_edit_btn.setStyleSheet(
-            "QPushButton { background-color: #5c85d6; color: #ffffff; border-radius: 4px;"
-            " padding: 6px 12px; } QPushButton:hover { background-color: #6a95e6; }"
+        title = QLabel("TODOs")
+        title.setStyleSheet(
+            f"color: {Color.TEXT}; font-size: {Font.SIZE_XL};"
+            f"font-weight: {Font.WEIGHT_SEMIBOLD}; letter-spacing: -0.2px;"
         )
+        title_row.addWidget(title)
+
+        subtitle = QLabel("Action Hub")
+        subtitle.setStyleSheet(
+            f"color: {Color.TEXT_FAINT}; font-size: {Font.SIZE_SM}; padding-left: 8px;"
+        )
+        title_row.addWidget(subtitle)
+
+        title_row.addStretch()
+
+        # Batch edit button (hidden by default) — uses theme primary style
+        self._batch_edit_btn = QPushButton("Edit Selected (0)")
+        self._batch_edit_btn.setStyleSheet(primary_button_qss())
+        self._batch_edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._batch_edit_btn.clicked.connect(self._open_batch_edit)
         self._batch_edit_btn.hide()
         title_row.addWidget(self._batch_edit_btn)
-        
-        # Clear selection button
+
+        # Clear selection button — ghost
         self._clear_selection_btn = QPushButton("Clear Selection")
-        self._clear_selection_btn.setStyleSheet(
-            "QPushButton { background-color: #4a4a5a; color: #c0c0d0; border-radius: 4px;"
-            " padding: 6px 12px; } QPushButton:hover { background-color: #5a5a6a; }"
-        )
+        self._clear_selection_btn.setStyleSheet(ghost_button_qss())
+        self._clear_selection_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._clear_selection_btn.clicked.connect(self._clear_all_card_selections)
         self._clear_selection_btn.hide()
         title_row.addWidget(self._clear_selection_btn)
-        
+
         root.addLayout(title_row)
 
         options_row = QHBoxLayout()
@@ -1514,40 +1500,40 @@ class TodosPage(QWidget):
     def _build_tracker(self) -> QWidget:
         frame = QFrame()
         frame.setStyleSheet(
-            "background-color: #232336; border: 1px solid #3a3a4e; border-radius: 6px;"
-            "padding: 8px;"
+            f"background-color: {Color.SURFACE}; border: 1px solid {Color.BORDER};"
+            f"border-radius: {Size.RADIUS_MD}px;"
         )
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(6)
+        layout.setContentsMargins(Size.MD, Size.SM, Size.MD, Size.SM)
+        layout.setSpacing(Size.MD)
 
-        label = QLabel("Tracker is available while there are cards in Doing.")
-        label.setStyleSheet("color: #a0a0b0; font-size: 12px;")
+        label = QLabel("Tracker · available while there are cards in Doing")
+        label.setStyleSheet(f"color: {Color.TEXT_MUTED}; font-size: {Font.SIZE_SM};")
         layout.addWidget(label)
 
+        layout.addStretch()
+
         self._tracker_label = QLabel("00:00:00")
-        self._tracker_label.setStyleSheet("color: #c8c8d8; font-family: monospace;")
+        self._tracker_label.setStyleSheet(
+            f"color: {Color.TEXT}; font-family: 'SF Mono', 'Menlo', monospace;"
+            f"font-size: {Font.SIZE_MD};"
+        )
         layout.addWidget(self._tracker_label)
 
         self._tracker_button = QPushButton("Start")
-        self._tracker_button.setFixedWidth(70)
-        self._tracker_button.setStyleSheet(
-            "QPushButton { background-color: #5c85d6; color: #ffffff; border-radius: 4px; "
-            "padding: 4px 8px; } QPushButton:hover { background-color: #6a95e6; }"
-        )
+        self._tracker_button.setFixedWidth(72)
+        self._tracker_button.setStyleSheet(primary_button_qss())
+        self._tracker_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._tracker_button.clicked.connect(self._toggle_tracker)
         layout.addWidget(self._tracker_button)
 
         reset_btn = QPushButton("Reset")
-        reset_btn.setFixedWidth(70)
-        reset_btn.setStyleSheet(
-            "QPushButton { background-color: #3a3a4e; color: #c8c8d8; border-radius: 4px; "
-            "padding: 4px 8px; } QPushButton:hover { background-color: #4a4a6e; }"
-        )
+        reset_btn.setFixedWidth(72)
+        reset_btn.setStyleSheet(ghost_button_qss())
+        reset_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         reset_btn.clicked.connect(self._reset_tracker)
         layout.addWidget(reset_btn)
 
-        layout.addStretch()
         self._tracker_frame = frame
         frame.hide()
         return frame
@@ -1651,7 +1637,9 @@ class BatchEditDialog(QDialog):
         layout = QVBoxLayout(self)
 
         info = QLabel(f"Editing {len(self._item_ids)} selected items.\nOnly checked fields will be updated.")
-        info.setStyleSheet("color: #a0a0b0; font-size: 11px; padding: 8px;")
+        info.setStyleSheet(
+            f"color: {Color.TEXT_MUTED}; font-size: {Font.SIZE_SM}; padding: 8px;"
+        )
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -1660,7 +1648,13 @@ class BatchEditDialog(QDialog):
         # Status change
         self.status_check = QPushButton("☐ Status")
         self.status_check.setCheckable(True)
-        self.status_check.setStyleSheet("text-align: left; padding: 4px;")
+        self.status_check.setStyleSheet(
+            f"QPushButton {{ text-align: left; padding: 4px 10px; color: {Color.TEXT};"
+            f" background: transparent; border: 1px solid {Color.BORDER};"
+            f" border-radius: {Size.RADIUS_SM}px; }}"
+            f"QPushButton:checked {{ background: {Color.ACCENT_SUBTLE};"
+            f" border-color: {Color.ACCENT}; }}"
+        )
         self.status_combo = QComboBox()
         for status in ItemStatus:
             self.status_combo.addItem(status.value, status)
@@ -1675,7 +1669,13 @@ class BatchEditDialog(QDialog):
         # Emergency level
         self.level_check = QPushButton("☐ Emergency")
         self.level_check.setCheckable(True)
-        self.level_check.setStyleSheet("text-align: left; padding: 4px;")
+        self.level_check.setStyleSheet(
+            f"QPushButton {{ text-align: left; padding: 4px 10px; color: {Color.TEXT};"
+            f" background: transparent; border: 1px solid {Color.BORDER};"
+            f" border-radius: {Size.RADIUS_SM}px; }}"
+            f"QPushButton:checked {{ background: {Color.ACCENT_SUBTLE};"
+            f" border-color: {Color.ACCENT}; }}"
+        )
         self.level_combo = QComboBox()
         self.level_combo.addItem("None")
         for level in _load_emergency_levels():
@@ -1691,7 +1691,13 @@ class BatchEditDialog(QDialog):
         # Workload
         self.workload_check = QPushButton("☐ Workload")
         self.workload_check.setCheckable(True)
-        self.workload_check.setStyleSheet("text-align: left; padding: 4px;")
+        self.workload_check.setStyleSheet(
+            f"QPushButton {{ text-align: left; padding: 4px 10px; color: {Color.TEXT};"
+            f" background: transparent; border: 1px solid {Color.BORDER};"
+            f" border-radius: {Size.RADIUS_SM}px; }}"
+            f"QPushButton:checked {{ background: {Color.ACCENT_SUBTLE};"
+            f" border-color: {Color.ACCENT}; }}"
+        )
         self.workload_combo = QComboBox()
         self.workload_combo.addItem("Not set", 0)
         workload_labels = ["① Light", "② Moderate", "③ Medium", "④ Heavy", "⑤ Very Heavy"]
@@ -1708,7 +1714,13 @@ class BatchEditDialog(QDialog):
         # Add tags
         self.add_tags_check = QPushButton("☐ Add Tags")
         self.add_tags_check.setCheckable(True)
-        self.add_tags_check.setStyleSheet("text-align: left; padding: 4px;")
+        self.add_tags_check.setStyleSheet(
+            f"QPushButton {{ text-align: left; padding: 4px 10px; color: {Color.TEXT};"
+            f" background: transparent; border: 1px solid {Color.BORDER};"
+            f" border-radius: {Size.RADIUS_SM}px; }}"
+            f"QPushButton:checked {{ background: {Color.ACCENT_SUBTLE};"
+            f" border-color: {Color.ACCENT}; }}"
+        )
         self.add_tags_edit = QLineEdit()
         self.add_tags_edit.setPlaceholderText("Tags to add (comma separated)")
         self.add_tags_edit.setEnabled(False)
