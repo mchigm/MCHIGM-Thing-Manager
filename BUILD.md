@@ -1,6 +1,6 @@
 # Building Executables for MCHIGM Thing Manager
 
-This guide explains how to compile the MCHIGM Thing Manager Python application into standalone executables for Windows and macOS.
+This guide explains how to compile the MCHIGM Thing Manager Python application into standalone executables for Windows, macOS, and Linux.
 
 ## Overview
 
@@ -17,6 +17,11 @@ The application uses PyInstaller to create standalone executables that bundle Py
 - Python 3.8 or higher
 - macOS 10.13 (High Sierra) or higher
 - Xcode Command Line Tools (install with `xcode-select --install`)
+
+### For Linux
+- Python 3.8 or higher
+- A recent Ubuntu/Debian-compatible system
+- Build essentials and Qt runtime libraries (the GitHub Action installs the minimum packages automatically)
 
 ## Quick Start
 
@@ -41,6 +46,16 @@ The application uses PyInstaller to create standalone executables that bundle Py
    ./build_mac.sh
    ```
 4. The application bundle will be created at `dist/MCHIGM Thing Manager.app`
+
+#### Linux
+
+1. Open Terminal
+2. Navigate to the project directory
+3. Run the build script:
+   ```bash
+   ./build_linux.sh
+   ```
+4. The portable archive will be created at `installer_output/MCHIGM-Thing-Manager-<version>-Linux.tar.gz`
 
 ### Building Installers
 
@@ -222,6 +237,13 @@ The wizard requires PyQt6 and provides a user-friendly GUI for all installation 
    - Prevents Gatekeeper warnings
    - Command: `xcrun notarytool submit`
 
+### Linux Distribution
+
+1. **Portable Archive**:
+   - Run `./build_linux.sh`
+   - Share `installer_output/MCHIGM-Thing-Manager-<version>-Linux.tar.gz`
+   - Users extract the archive and run `run.sh`
+
 ### Installer Comparison
 
 | Feature | Windows (Inno Setup) | macOS (.pkg) |
@@ -233,6 +255,14 @@ The wizard requires PyQt6 and provides a user-friendly GUI for all installation 
 | Uninstall with data cleanup | ✓ | Manual |
 | Code signing support | ✓ | ✓ |
 | Automatic updates | Via script | Via script |
+
+| Feature | Linux (tar.gz) |
+|---------|----------------|
+| Native UI | ✓ |
+| Portable archive | ✓ |
+| Desktop integration | Manual |
+| Data directory setup | ✓ |
+| Uninstall with data cleanup | Manual |
 
 ## Troubleshooting
 
@@ -257,6 +287,21 @@ The wizard requires PyQt6 and provides a user-friendly GUI for all installation 
   ```bash
   xattr -cr "/path/to/MCHIGM Thing Manager.app"
   ```
+
+## GitHub Action Release Inputs
+
+The packaging workflow in `.github/workflows/build-executables.yml` accepts:
+
+- `release_version`: free-form release label text; no `v` prefix required
+- `release_notes`: Markdown body inserted into the GitHub release
+
+Example:
+
+```bash
+gh workflow run "Build Executables and Installers" \
+  -f release_version="2026.05.14-beta" \
+  -f release_notes="$(cat RELEASE_NOTES.md)"
+```
 
 **macOS**: Application won't open (Gatekeeper)
 - **Solution**: Right-click → Open (first time only) or sign/notarize the app

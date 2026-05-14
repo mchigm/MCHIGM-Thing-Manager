@@ -3,13 +3,24 @@ name: Build Executables and Installers
 on:
   push:
     tags:
-      - 'v*'  # Trigger on version tags like v1.0.0
-  workflow_dispatch:  # Allow manual trigger from GitHub UI
+      - '*'
+  workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version tag (e.g., v1.0.0)'
+      release_version:
+        description: 'Release version or tag name (free-form)'
         required: true
-        default: 'v1.0.0'
+        default: '1.0.0'
+      release_notes:
+        description: 'Release notes in Markdown'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  APP_RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_version || github.ref_name }}
+  APP_RELEASE_NOTES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_notes || '' }}
 
 jobs:
   build-windows:
@@ -36,31 +47,25 @@ jobs:
         run: pyinstaller MCHIGM-Thing-Manager.spec
 
       - name: Install Inno Setup
-        run: |
-          choco install innosetup -y
+        run: choco install innosetup -y
 
       - name: Build Windows installer
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer_windows.iss
         shell: pwsh
 
-      - name: Upload Windows executable
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-Windows-Executable
-          path: dist/MCHIGM-Thing-Manager.exe
-          if-no-files-found: error
-
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: MCHIGM-Thing-Manager-Windows-Installer
-          path: installer_output/MCHIGM-Thing-Manager-Setup.exe
+          name: MCHIGM-Thing-Manager-Windows
+          path: |
+            dist/MCHIGM-Thing-Manager.exe
+            installer_output/MCHIGM-Thing-Manager-Setup.exe
           if-no-files-found: error
 
   build-macos:
     name: Build macOS Application and Installer
-    runs-on: macos-latest
+    runs-on: macos-13
 
     steps:
       - name: Checkout code
@@ -91,107 +96,135 @@ jobs:
           cd dist
           zip -r -y "MCHIGM-Thing-Manager-macOS.zip" "MCHIGM Thing Manager.app"
 
-      - name: Upload macOS application (ZIP)
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-macOS-App
-          path: dist/MCHIGM-Thing-Manager-macOS.zip
+          name: MCHIGM-Thing-Manager-macOS
+          path: |
+            dist/MCHIGM-Thing-Manager-macOS.zip
+            installer_output/MCHIGM-Thing-Manager-*.pkg
           if-no-files-found: error
 
-      - name: Upload macOS installer (.pkg)
+  build-linux:
+    name: Build Linux Package
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libxcb-cursor0 libxkbcommon-x11-0
+
+      - name: Build Linux package
+        run: |
+          chmod +x build_linux.sh
+          ./build_linux.sh
+
+      - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-macOS-Installer
-          path: installer_output/MCHIGM-Thing-Manager-*.pkg
+          name: MCHIGM-Thing-Manager-Linux
+          path: |
+            installer_output/MCHIGM-Thing-Manager-*-Linux.tar.gz
           if-no-files-found: error
 
   create-release:
     name: Create GitHub Release
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
 
     steps:
-      - name: Resolve release tag
-        id: release_tag
+      - name: Resolve release metadata
+        id: metadata
+        shell: bash
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
-          else
-            echo "tag=${{ github.event.inputs.version }}" >> "${GITHUB_OUTPUT}"
-          fi
+          printf 'release_version=%s\n' "${APP_RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+          {
+            echo 'release_notes<<EOF'
+            printf '%s\n' "${APP_RELEASE_NOTES}"
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
 
-      - name: Download Windows executable
+      - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-Windows-Executable
+          name: MCHIGM-Thing-Manager-Windows
           path: ./artifacts/windows
 
-      - name: Download Windows installer
+      - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-Windows-Installer
-          path: ./artifacts/windows
-
-      - name: Download macOS app
-        uses: actions/download-artifact@v4
-        with:
-          name: MCHIGM-Thing-Manager-macOS-App
+          name: MCHIGM-Thing-Manager-macOS
           path: ./artifacts/macos
 
-      - name: Download macOS installer
+      - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
-          name: MCHIGM-Thing-Manager-macOS-Installer
-          path: ./artifacts/macos
+          name: MCHIGM-Thing-Manager-Linux
+          path: ./artifacts/linux
 
-      - name: Select release files
-        id: release_files
+      - name: Prepare release body
+        id: body
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.metadata.outputs.release_version }}
+          RELEASE_NOTES: ${{ steps.metadata.outputs.release_notes }}
         run: |
-          tag="${{ steps.release_tag.outputs.tag }}"
-          version="${tag#v}"
-          IFS='.' read -r major minor patch <<< "${version}"
+          python - <<'PY'
+          from pathlib import Path
+          import os
 
-          if [[ "${patch}" =~ ^[0-9]+$ ]] && [[ "${patch}" -gt 0 ]]; then
-            echo "kind=patch" >> "${GITHUB_OUTPUT}"
-            cat <<'EOF' >> "${GITHUB_OUTPUT}"
-          files<<FILES
-          ./artifacts/windows/MCHIGM-Thing-Manager.exe
-          ./artifacts/windows/MCHIGM-Thing-Manager-Setup.exe
-          ./artifacts/macos/MCHIGM-Thing-Manager-macOS.zip
-          ./artifacts/macos/*.pkg
-          FILES
-          EOF
-          else
-            echo "kind=update" >> "${GITHUB_OUTPUT}"
-            cat <<'EOF' >> "${GITHUB_OUTPUT}"
-          files<<FILES
-          ./artifacts/windows/MCHIGM-Thing-Manager-Setup.exe
-          ./artifacts/macos/*.pkg
-          FILES
-          EOF
-          fi
+          version = os.environ["RELEASE_VERSION"].strip()
+          notes = os.environ.get("RELEASE_NOTES", "").rstrip()
+
+          lines = [
+              f"# Release {version}",
+              "",
+              "## Installation",
+              "",
+              "### Windows",
+              "- Recommended: `MCHIGM-Thing-Manager-Setup.exe`",
+              "- Portable: `MCHIGM-Thing-Manager.exe`",
+              "",
+              "### macOS",
+              "- Recommended: `MCHIGM-Thing-Manager-*.pkg`",
+              "- Portable: `MCHIGM-Thing-Manager-macOS.zip`",
+              "",
+              "### Linux",
+              "- Portable archive: `MCHIGM-Thing-Manager-Linux.tar.gz`",
+          ]
+
+          if notes:
+              lines.extend(["", "## Release Notes", "", notes])
+
+          Path("release-body.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          echo "body_path=release-body.md" >> "${GITHUB_OUTPUT}"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.release_tag.outputs.tag }}
-          files: ${{ steps.release_files.outputs.files }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_id) || steps.metadata.outputs.release_version }}
+          name: ${{ steps.metadata.outputs.release_version }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            ./artifacts/windows/*.exe
+            ./artifacts/macos/*.zip
+            ./artifacts/macos/*.pkg
+            ./artifacts/linux/*.tar.gz
           draft: false
           prerelease: false
-          generate_release_notes: true
-          body: |
-            ## Installation
-
-            ### Windows
-            **Recommended:** Download and run `MCHIGM-Thing-Manager-Setup.exe` (installer)
-            **Alternative:** Download `MCHIGM-Thing-Manager.exe` (standalone executable)
-
-            ### macOS
-            **Recommended:** Download and run `MCHIGM-Thing-Manager-*.pkg` (installer)
-            **Alternative:** Download and extract `MCHIGM-Thing-Manager-macOS.zip`
-
-            ## What's New
-            See the full changelog below.
+          generate_release_notes: false
+          body_path: ${{ steps.body.outputs.body_path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

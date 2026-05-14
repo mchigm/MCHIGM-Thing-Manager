@@ -12,9 +12,10 @@ echo ""
 # Configuration
 APP_NAME="MCHIGM Thing Manager"
 APP_BUNDLE="MCHIGM Thing Manager.app"
-VERSION="1.0.0"
+VERSION="${APP_RELEASE_VERSION:-1.0.0}"
+SAFE_VERSION="$(printf '%s' "$VERSION" | tr -cs 'A-Za-z0-9._-' '-')"
 BUNDLE_ID="com.mchigm.thing-manager"
-PKG_NAME="MCHIGM-Thing-Manager-${VERSION}.pkg"
+PKG_NAME="MCHIGM-Thing-Manager-${SAFE_VERSION}.pkg"
 
 # Directories
 BUILD_DIR="$(pwd)/pkg_build"
