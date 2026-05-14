@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QStatusBar,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -40,6 +41,7 @@ from src.ui.pages.memo import MemoPage
 from src.ui.pages.plan import PlanPage
 from src.ui.pages.timetable import TimetablePage
 from src.ui.pages.todos import TodosPage
+from src.ui.feedback import show_app_message
 from src.ui.settings_window import SettingsWindow
 from src.ui.update_worker import UpdateCheckWorker
 from src.version import APP_VERSION
@@ -100,6 +102,7 @@ class MainWindow(QMainWindow):
         self._active_filters: dict = {}
         self._update_check_thread: QThread | None = None
         self._update_check_worker: UpdateCheckWorker | None = None
+        self.setStatusBar(QStatusBar(self))
         self._setup_platform_decorations()
         self._setup_ui()
         self._register_shortcuts()
@@ -177,14 +180,34 @@ class MainWindow(QMainWindow):
 
     def _register_shortcuts(self) -> None:
         """Set up navigation and quick capture shortcuts."""
-        for i in range(4):
-            shortcut = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
-            shortcut.activated.connect(lambda idx=i: self._navigate_to(idx))
-            self._shortcuts.append(shortcut)
+        self._clear_shortcuts()
+        hotkeys = load_settings().get("hotkeys", {})
+        if not isinstance(hotkeys, dict):
+            hotkeys = {}
+        shortcut_specs = [
+            ("page_todos", "Ctrl+1", lambda: self._navigate_to(0)),
+            ("page_timetable", "Ctrl+2", lambda: self._navigate_to(1)),
+            ("page_memo", "Ctrl+3", lambda: self._navigate_to(2)),
+            ("page_plan", "Ctrl+4", lambda: self._navigate_to(3)),
+            ("quick_capture", "Ctrl+Space", self._open_quick_capture),
+            ("search", "Ctrl+F", self._focus_search),
+            ("settings", "Ctrl+,", self._open_settings),
+        ]
+        for setting_key, fallback, handler in shortcut_specs:
+            self._register_shortcut(str(hotkeys.get(setting_key, fallback)), handler)
 
-        quick_capture = QShortcut(QKeySequence("Ctrl+Space"), self)
-        quick_capture.activated.connect(self._open_quick_capture)
-        self._shortcuts.append(quick_capture)
+    def _clear_shortcuts(self) -> None:
+        for shortcut in self._shortcuts:
+            shortcut.deleteLater()
+        self._shortcuts.clear()
+
+    def _register_shortcut(self, sequence: str, handler) -> None:
+        key_sequence = QKeySequence(sequence)
+        if key_sequence.isEmpty():
+            return
+        shortcut = QShortcut(key_sequence, self)
+        shortcut.activated.connect(handler)
+        self._shortcuts.append(shortcut)
 
     def _build_top_bar(self) -> QWidget:
         bar = QWidget()
@@ -509,6 +532,8 @@ class MainWindow(QMainWindow):
         for i, btn in enumerate(self._page_buttons):
             bg = _NAV_BTN_ACTIVE_BG if i == index else _NAV_BTN_INACTIVE_BG
             btn.setStyleSheet(_NAV_BTN_STYLE.format(bg=bg))
+        page_name = {0: "TODOs", 1: "Timetable", 2: "MEMO", 3: "Plan"}.get(index, "Page")
+        show_app_message(self, f"Opened {page_name}", 1200)
 
     # ------------------------------------------------------------------
     # Settings
@@ -516,16 +541,20 @@ class MainWindow(QMainWindow):
     def _open_settings(self) -> None:
         old_lang = str(load_settings().get("language", "en"))
         dlg = SettingsWindow(self)
-        dlg.exec()
+        result = dlg.exec()
         self.setWindowTitle(tr("app.name", "MCHIGM Thing Manager"))
         new_lang = str(load_settings().get("language", "en"))
+        self._register_shortcuts()
         if old_lang != new_lang:
-            QMessageBox.information(
-                self,
-                tr("settings.title", "Settings"),
-                tr("settings.restart_hint", "Restart the app to apply language changes everywhere."),
-            )
+            show_app_message(self, tr("settings.restart_hint", "Restart the app to apply language changes everywhere."), 4000)
+        elif result == QDialog.DialogCode.Accepted:
+            show_app_message(self, "Settings saved", 1800)
         self._refresh_pages()
+
+    def _focus_search(self) -> None:
+        self._search_bar.setFocus()
+        self._search_bar.selectAll()
+        show_app_message(self, "Search focused", 1200)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -621,6 +650,7 @@ class QuickCaptureDialog(QDialog):
         self.setWindowTitle("Quick Capture (Ctrl+Space)")
         self.setMinimumWidth(400)
         self._setup_ui()
+        self._install_shortcuts()
 
     def _setup_ui(self):
         from PyQt6.QtWidgets import QFormLayout, QDialogButtonBox, QComboBox, QLineEdit, QTextEdit
@@ -636,6 +666,7 @@ class QuickCaptureDialog(QDialog):
             "border-radius: 4px; padding: 8px; font-size: 14px;"
         )
         form.addRow("Title:", self.title_edit)
+        self.title_edit.returnPressed.connect(self._save_item)
 
         self.description_edit = QTextEdit()
         self.description_edit.setPlaceholderText("Optional details...")
@@ -688,6 +719,15 @@ class QuickCaptureDialog(QDialog):
         # Focus on title
         self.title_edit.setFocus()
 
+    def _install_shortcuts(self) -> None:
+        self._save_shortcuts = [
+            QShortcut(QKeySequence.StandardKey.Save, self),
+            QShortcut(QKeySequence("Ctrl+Return"), self),
+            QShortcut(QKeySequence("Ctrl+Enter"), self),
+        ]
+        for shortcut in self._save_shortcuts:
+            shortcut.activated.connect(self._save_item)
+
     def _save_item(self):
         """Save the captured item."""
         title = self.title_edit.text().strip()
@@ -711,4 +751,5 @@ class QuickCaptureDialog(QDialog):
             session.add(item)
             session.commit()
 
+        show_app_message(self, f"Captured: {title[:48]}")
         self.accept()

@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from PyQt6.QtCore import Qt, QTimer, QMimeData, QByteArray, QDateTime, QUrl
-from PyQt6.QtGui import QDrag, QCursor, QDesktopServices
+from PyQt6.QtGui import QDrag, QCursor, QDesktopServices, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from src.database.models import Item, ItemStatus, ItemType, ItemTemplate, Scenario, SessionLocal, Tag
 from src.scheduling import calculate_buffer_minutes
+from src.ui.feedback import show_app_message
 from src.ui.search_filters import parse_search_text
 from src.settings_store import load_settings, save_settings
 
@@ -270,6 +271,7 @@ class ItemDetailsDialog(QDialog):
         self.setMinimumHeight(400)
         self._levels = _load_emergency_levels()
         self._setup_ui(item)
+        self._install_shortcuts()
 
     def _setup_ui(self, item: Item):
         layout = QVBoxLayout(self)
@@ -547,7 +549,17 @@ class ItemDetailsDialog(QDialog):
         except SQLAlchemyError as exc:
             QMessageBox.critical(self, "Save Failed", f"Could not save changes.\n\n{exc}")
             return
+        show_app_message(self, "Item saved")
         self.accept()
+
+    def _install_shortcuts(self) -> None:
+        self._save_shortcuts = [
+            QShortcut(QKeySequence.StandardKey.Save, self),
+            QShortcut(QKeySequence("Ctrl+Return"), self),
+            QShortcut(QKeySequence("Ctrl+Enter"), self),
+        ]
+        for shortcut in self._save_shortcuts:
+            shortcut.activated.connect(self.save_changes)
 
     @staticmethod
     def _extract_links(text: str) -> list[str]:
@@ -635,6 +647,7 @@ class NewItemDialog(QDialog):
         self.setWindowTitle(f"New Item - {status.value}")
         self.setMinimumWidth(450)
         self._setup_ui()
+        self._install_shortcuts()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -671,6 +684,7 @@ class NewItemDialog(QDialog):
         if self._template_data.get('title'):
             self.title_edit.setText(self._template_data['title'])
         form.addRow("Title:", self.title_edit)
+        self.title_edit.returnPressed.connect(self._create_item)
 
         self.description_edit = QTextEdit()
         self.description_edit.setPlaceholderText("Optional description...")
@@ -883,6 +897,15 @@ class NewItemDialog(QDialog):
         
         self._update_buffer_label(self.estimated_time_edit.value())
 
+    def _install_shortcuts(self) -> None:
+        self._save_shortcuts = [
+            QShortcut(QKeySequence.StandardKey.Save, self),
+            QShortcut(QKeySequence("Ctrl+Return"), self),
+            QShortcut(QKeySequence("Ctrl+Enter"), self),
+        ]
+        for shortcut in self._save_shortcuts:
+            shortcut.activated.connect(self._create_item)
+
     def _add_tag(self, tag_name: str):
         """Add a tag to the tags input."""
         current = self.tags_edit.text().strip()
@@ -973,7 +996,7 @@ class NewItemDialog(QDialog):
             if not existing:
                 self.template_combo.addItem(name, template.id)
             
-            QMessageBox.information(self, "Saved", f"Template '{name}' saved!")
+            show_app_message(self, f"Template '{name}' saved")
 
     def _update_buffer_label(self, minutes: int):
         """Update the buffer time label."""
@@ -1059,6 +1082,7 @@ class NewItemDialog(QDialog):
             QMessageBox.critical(self, "Create Failed", f"Could not create item.\n\n{exc}")
             return
 
+        show_app_message(self, f"Created: {title[:48]}")
         self.accept()
 
 
@@ -1158,11 +1182,15 @@ class KanbanColumn(QWidget):
                 return
 
             # Update the item's status in the database
+            moved_title = ""
             with SessionLocal() as session:
                 item = session.query(Item).filter(Item.id == item_id).first()
                 if item:
+                    moved_title = item.title
                     item.status = self._status
                     session.commit()
+            if moved_title:
+                show_app_message(self, f"Moved '{moved_title[:32]}' to {self._status.value}")
 
             # Refresh the parent page
             todos_page = self.find_todos_page()

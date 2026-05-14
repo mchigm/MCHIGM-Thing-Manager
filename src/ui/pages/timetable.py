@@ -24,6 +24,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from src.database.models import Item, ItemType, Scenario, SessionLocal, Tag
 from src.scheduling import occurrence_windows_for_item
+from src.ui.feedback import show_app_message
 from src.settings_store import load_settings
 from src.ui.search_filters import parse_search_text
 
@@ -178,9 +179,11 @@ class ScalableCalendar(QCalendarWidget):
             selected_date = self.selectedDate()
 
             # Update the item's start time in the database
+            scheduled_title = ""
             with SessionLocal() as session:
                 item = session.query(Item).filter(Item.id == item_id).first()
                 if item:
+                    scheduled_title = item.title
                     # Set start_time to the selected date at current time
                     now = datetime.now(timezone.utc)
                     start_dt = datetime(
@@ -193,6 +196,8 @@ class ScalableCalendar(QCalendarWidget):
                     )
                     item.start_time = start_dt
                     session.commit()
+            if scheduled_title:
+                show_app_message(self, f"Scheduled '{scheduled_title[:32]}'")
 
             # Refresh the parent page
             timetable_page = self.find_timetable_page()

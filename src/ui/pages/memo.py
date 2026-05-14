@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QInputDialog,
@@ -25,6 +26,7 @@ from PyQt6.QtWidgets import (
 from src.ai.memo_agent import GeneratedItem, call_memo_agent
 from src.database.models import Dependency, Item, Scenario, SessionLocal, Tag
 from src.i18n import tr
+from src.ui.feedback import show_app_message
 from src.settings_store import load_settings
 
 _HISTORY_PATH = Path.home() / ".mchigm_thing_manager" / "memo_history.json"
@@ -198,9 +200,16 @@ class MemoPage(QWidget):
 
         root.addLayout(input_row)
 
+        self._send_shortcuts = [
+            QShortcut(QKeySequence("Ctrl+Return"), self),
+            QShortcut(QKeySequence("Ctrl+Enter"), self),
+        ]
+        for shortcut in self._send_shortcuts:
+            shortcut.activated.connect(self._send_message)
+
         note = QLabel(
             "The AI will turn memos into structured Items (Task/Event/Note/Goal). "
-            "Without an API key it saves a Note in Backlog."
+            "Press Enter or Ctrl+Enter to send."
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: #505060; font-size: 11px;")
@@ -386,12 +395,14 @@ class MemoPage(QWidget):
             error_msg = f"Error: {error[:100]}" if error else "An error occurred"
             self._history.append(f"<i style='color:#b97a7a;'>{html.escape(error_msg)}</i>")
             self._chat_messages.append({"role": "system", "content": error_msg})
+            show_app_message(self, error_msg, 3500)
             return
 
         candidates = [entry for entry in (results if isinstance(results, list) else []) if isinstance(entry, dict)]
         if not candidates:
             self._history.append("<i style='color:#606070;'>No AI response.</i>")
             self._chat_messages.append({"role": "system", "content": "No AI response."})
+            show_app_message(self, "No AI response", 1800)
             return
 
         selected = candidates[0]
@@ -423,6 +434,7 @@ class MemoPage(QWidget):
             if not ok:
                 self._history.append("<i style='color:#808090;'>Draft selection canceled.</i>")
                 self._chat_messages.append({"role": "system", "content": "Draft selection canceled."})
+                show_app_message(self, "Draft selection canceled", 1800)
                 return
             selected = candidates[options.index(choice)]
             chosen_model = str(selected.get("model", "unknown"))
@@ -441,6 +453,7 @@ class MemoPage(QWidget):
             msg = f"Created {created} item(s) and refreshed views."
             self._history.append(f"<i style='color:#7ab97a;'>{html.escape(msg)}</i>")
             self._chat_messages.append({"role": "system", "content": msg})
+            show_app_message(self, msg, 2500)
             if self._on_items_created:
                 self._on_items_created()
         elif not ai_text:

@@ -33,6 +33,7 @@ from sqlalchemy.orm import selectinload
 from src.database.models import Dependency, Item, ItemStatus, Scenario, SessionLocal, Tag
 from src.i18n import tr
 from src.scheduling import item_duration_minutes, occurrence_windows_for_item
+from src.ui.feedback import show_app_message
 from src.settings_store import load_settings
 from src.ui.search_filters import parse_search_text
 from src.ui.pages.todos import ItemDetailsDialog
@@ -720,7 +721,7 @@ class PlanPage(QWidget):
             source = self._scene.itemsBoundingRect().adjusted(-_PADDING, -_PADDING, _PADDING, _PADDING)
             target = QRectF(0, 0, writer.width(), writer.height())
             self._scene.render(painter, target, source)
-            QMessageBox.information(self, "Export", "Roadmap exported to PDF.")
+            show_app_message(self, "Roadmap exported to PDF")
         except Exception as exc:  # pragma: no cover - GUI feedback
             QMessageBox.critical(self, "Export Failed", str(exc))
         finally:
@@ -744,11 +745,7 @@ class PlanPage(QWidget):
                 recent_data.append((scenario_name, item.title, item.type.value))
 
         if not recent_data:
-            QMessageBox.information(
-                self,
-                "Weekly Retrospective",
-                "No items were completed in the past 7 days.",
-            )
+            show_app_message(self, "No items completed in the past 7 days")
             return
 
         by_scenario: dict[str, list[str]] = {}
