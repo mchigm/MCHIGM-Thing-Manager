@@ -215,6 +215,8 @@ jobs:
         env:
           RELEASE_VERSION: ${{ steps.metadata.outputs.release_version }}
           RELEASE_NOTES: ${{ steps.metadata.outputs.release_notes }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -222,13 +224,19 @@ jobs:
 
           version = os.environ["RELEASE_VERSION"].strip()
           notes = os.environ.get("RELEASE_NOTES", "").rstrip()
+          repository = os.environ.get("REPOSITORY", "").strip()
+          commit_sha = os.environ.get("COMMIT_SHA", "").strip()
+          changelog = Path("CHANGELOG").read_text(encoding="utf-8").strip()
+          changelog_url = f"https://github.com/{repository}/blob/{commit_sha}/CHANGELOG" if repository and commit_sha else ""
 
           lines = [
               f"# Release {version}",
               "",
               "## What's New",
               "",
-              notes if notes else "Release assets and installation packages are listed below.",
+              f"Source: [CHANGELOG]({changelog_url})" if changelog_url else "Source: CHANGELOG",
+              "",
+              notes if notes else changelog,
               "",
               "## Installation",
               "",
